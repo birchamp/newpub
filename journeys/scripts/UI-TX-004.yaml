@@ -1,0 +1,175 @@
+id: UI-TX-004
+title: Continued notices from the Format panel — "Include 'Continued on page…'" and "Include 'Continued from page…'" are greyed out on an unlinked box and on the first / last box of a chain, set the flags on flowed boxes and draw the generated notice line at the bottom and top, undo and redo, one undo step for a multiple selection, save / open through the dialogs and the PDF
+covers: [UI-27]
+ui: true
+steps:
+  # --- setup: a story box A over most of page 1 that overflows (fixtures/long-text.txt)
+  - click: {label: "Text Box"}
+  - drag: {from: [1in, 1in], to: [7.5in, 4in]}
+  - expect: {query: {q: page_objects, page: 0}, path: /0, gt: 0, as: a}
+  - click: {label: "Insert"}
+  - click: {label: "Text File"}
+  - fill: {label: "Text file", text: "fixtures/long-text.txt"}
+  - click: {label: "Insert Text"}
+  - expect: {query: {q: story_text, target: $a}, starts_with: "New mayor library hall"}
+  - expect: {query: {q: overflow, target: $a}, equals: true}
+  - click: {label: "Home"}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+
+  # --- an unlinked box shows both checkboxes, greyed out: clicking them changes nothing
+  - expect_ui: {label: "Include 'Continued on page…'"}
+  - expect_ui: {label: "Include 'Continued from page…'"}
+  - expect: {query: {q: object, id: $a}, path: /kind/continued_on, equals: false}
+  - expect: {query: {q: object, id: $a}, path: /kind/continued_from, equals: false}
+  - click: {label: "Include 'Continued on page…'"}
+  - click: {label: "Include 'Continued from page…'"}
+  - expect: {query: {q: object, id: $a}, path: /kind/continued_on, equals: false}
+  - expect: {query: {q: object, id: $a}, path: /kind/continued_from, equals: false}
+  - expect: {query: {q: frame_text, frame: $a}, not_contains: "Continued"}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+
+  # --- Flow onto New Pages: the story continues in a box E on page 2 (and on, one box per page)
+  - click: {label: "Flow onto New Pages"}
+  - expect: {query: {q: overflow, target: $a}, equals: false}
+  - expect: {query: {q: page_count}, gt: 1, as: pages}
+  - expect: {query: {q: page_count}, equals: 10}
+  - expect: {query: {q: story_frames, target: $a}, path: /0, equals: $a}
+  - expect: {query: {q: story_frames, target: $a}, path: /1, gt: 0, as: e}
+  - expect: {query: {q: story_frames, target: $a}, len: {equals: $pages}}
+  - expect: {query: {q: view}, path: /page, equals: 0}
+  - click_at: [2in, 2in]
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect: {query: {q: view}, path: /story_nav/index, equals: 0}
+
+  # --- "Include 'Continued on page…'" on the first box: the flag is set and "(Continued on page 2)" is the last
+  # line of the box, right-aligned inside its margins; the story text itself is untouched
+  - click: {label: "Include 'Continued on page…'"}
+  - expect: {query: {q: object, id: $a}, path: /kind/continued_on, equals: true}
+  - expect: {query: {q: object, id: $a}, path: /kind/continued_from, equals: false}
+  - expect: {query: {q: frame_text, frame: $a}, ends_with: "(Continued on page 2)"}
+  - expect: {query: {q: story_text, target: $a}, not_contains: "Continued"}
+  - dump: {query: {q: frame_lines, frame: $a}, file: a-lines.json}
+  - expect: {query: {q: frame_lines, frame: $a}, len: {equals: 14}}
+  - expect: {query: {q: frame_lines, frame: $a}, path: /13/text, equals: "(Continued on page 2)"}
+  # line geometry is relative to the box: 6.5in wide with 0.08in margins, 3in tall
+  - expect: {query: {q: frame_lines, frame: $a}, path: /13/x, gt: 300}
+  - expect: {query: {q: frame_lines, frame: $a}, path: /13/ink_right, lte: 462.3}
+  - expect: {query: {q: frame_lines, frame: $a}, path: /13/ink_left, gt: 300}
+  - expect: {query: {q: frame_lines, frame: $a}, path: /13/top, gt: 180}
+  - expect: {query: {q: frame_lines, frame: $a}, path: /13/top, lt: 211}
+  - expect: {query: {q: frame_lines, frame: $a}, path: /13/height, lt: 14}
+  - expect: {query: {q: frame_lines, frame: $a}, path: /0/x, approx: [5.76, 0.01]}
+  - expect: {query: {q: frame_lines, frame: $a}, path: /0/text, starts_with: "New mayor library hall"}
+  # the first box of the story has no page to continue from: its "from" checkbox is greyed out
+  - click: {label: "Include 'Continued from page…'"}
+  - expect: {query: {q: object, id: $a}, path: /kind/continued_from, equals: false}
+  - expect: {query: {q: frame_text, frame: $a}, starts_with: "New mayor library hall"}
+
+  # --- the second box E: "Include 'Continued from page…'" sets the flag and "(Continued from page 1)" is its
+  # first line, at the top left inside the margins
+  - click: {label: "Next Text Box"}
+  - expect: {query: {q: view}, path: /selection, equals: [$e]}
+  - expect: {query: {q: view}, path: /page, equals: 1}
+  - expect: {query: {q: view}, path: /story_nav/index, equals: 1}
+  - expect: {query: {q: frame_text, frame: $e}, not_contains: "Continued"}
+  - click: {label: "Include 'Continued from page…'"}
+  - expect: {query: {q: object, id: $e}, path: /kind/continued_from, equals: true}
+  - expect: {query: {q: object, id: $e}, path: /kind/continued_on, equals: false}
+  - expect: {query: {q: frame_text, frame: $e}, starts_with: "(Continued from page 1)"}
+  - expect: {query: {q: story_text, target: $e}, not_contains: "Continued"}
+  - dump: {query: {q: frame_lines, frame: $e}, file: e-lines.json}
+  - expect: {query: {q: frame_lines, frame: $e}, path: /0/text, equals: "(Continued from page 1)"}
+  - expect: {query: {q: frame_lines, frame: $e}, path: /0/x, approx: [5.76, 0.01]}
+  - expect: {query: {q: frame_lines, frame: $e}, path: /0/top, approx: [5.76, 0.01]}
+  - expect: {query: {q: frame_lines, frame: $e}, path: /0/height, lt: 14}
+  - expect: {query: {q: frame_lines, frame: $e}, path: /1/top, gt: 14}
+  # the flag on A is still on and its notice still names page 2
+  - expect: {query: {q: frame_text, frame: $a}, ends_with: "(Continued on page 2)"}
+
+  # --- undo and redo of the flag on E (the greyed-out clicks made no undo steps)
+  - expect: {query: {q: view}, path: /selection, equals: [$e]}
+  - click: {label: "Undo"}
+  - expect: {query: {q: object, id: $e}, path: /kind/continued_from, equals: false}
+  - expect: {query: {q: frame_text, frame: $e}, not_contains: "Continued"}
+  - expect: {query: {q: frame_lines, frame: $e}, path: /0/top, approx: [5.76, 0.01]}
+  - expect: {query: {q: frame_lines, frame: $e}, path: /0/text, not_contains: "Continued"}
+  - expect: {query: {q: object, id: $a}, path: /kind/continued_on, equals: true}
+  - click: {label: "Redo"}
+  - expect: {query: {q: object, id: $e}, path: /kind/continued_from, equals: true}
+  - expect: {query: {q: frame_text, frame: $e}, starts_with: "(Continued from page 1)"}
+  - expect: {query: {q: frame_lines, frame: $e}, path: /0/text, equals: "(Continued from page 1)"}
+
+  # --- the last box of the story has no page to continue on: its "on" checkbox is greyed out
+  - click: {label: "Page 10"}
+  - expect: {query: {q: view}, path: /page, equals: 9}
+  - click_at: [2in, 2in]
+  - expect: {query: {q: view}, path: /selection/0, gt: 0, as: last}
+  - expect: {query: {q: story_frames, target: $a}, path: /9, equals: $last}
+  - expect: {query: {q: view}, path: /story_nav/index, equals: 9}
+  - expect_ui: {label: "Include 'Continued on page…'"}
+  - click: {label: "Include 'Continued on page…'"}
+  - expect: {query: {q: object, id: $last}, path: /kind/continued_on, equals: false}
+  - expect: {query: {q: frame_text, frame: $last}, not_contains: "Continued"}
+
+  # --- a multiple selection: on the last page an empty box C is linked after the last box; Select All picks
+  # both, and one click on "Include 'Continued on page…'" sets the flag on both as one undo step. C holds no
+  # text, so no notice is drawn in the box before it.
+  - click: {label: "Text Box"}
+  - drag: {from: [1in, 5in], to: [7.5in, 7in]}
+  - expect: {query: {q: page_objects, page: 9}, path: /1, gt: 0, as: c}
+  - key: {key: "Escape"}
+  - click_at: [2in, 2in]
+  - expect: {query: {q: view}, path: /selection, equals: [$last]}
+  - click: {label: "Link to Next Box"}
+  - expect: {query: {q: view}, path: /link_targets, equals: [$c]}
+  - click_at: [2in, 6in]
+  - expect: {query: {q: view}, path: /link_mode, equals: null}
+  - expect: {query: {q: view}, path: /selection, equals: [$c]}
+  - expect: {query: {q: story_frames, target: $a}, path: /10, equals: $c}
+  - expect: {query: {q: frame_text, frame: $c}, equals: ""}
+  - key: {key: "A", command: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$last, $c]}
+  - click: {label: "Include 'Continued on page…'"}
+  - expect: {query: {q: object, id: $last}, path: /kind/continued_on, equals: true}
+  - expect: {query: {q: object, id: $c}, path: /kind/continued_on, equals: true}
+  - expect: {query: {q: frame_text, frame: $last}, not_contains: "Continued"}
+  - expect: {query: {q: frame_text, frame: $c}, equals: ""}
+  - click: {label: "Undo"}
+  - expect: {query: {q: object, id: $last}, path: /kind/continued_on, equals: false}
+  - expect: {query: {q: object, id: $c}, path: /kind/continued_on, equals: false}
+  - expect: {query: {q: story_frames, target: $a}, path: /10, equals: $c}
+  - click: {label: "Redo"}
+  - expect: {query: {q: object, id: $last}, path: /kind/continued_on, equals: true}
+  - expect: {query: {q: object, id: $c}, path: /kind/continued_on, equals: true}
+  - click: {label: "Undo"}
+  - expect: {query: {q: object, id: $last}, path: /kind/continued_on, equals: false}
+  - expect: {query: {q: object, id: $c}, path: /kind/continued_on, equals: false}
+
+  # --- save, new and open through the dialogs keep the flags and the notices; they reach the PDF
+  - click: {label: "Save"}
+  - fill: {label: "File name", text: "continued.npub"}
+  - click: {label: "Save File"}
+  - expect: {query: {q: session}, path: /dirty, equals: false}
+  - click: {label: "New"}
+  - click: {label: "Create"}
+  - expect: {query: {q: page_count}, equals: 1}
+  - expect: {query: {q: object_count, page: 0}, equals: 0}
+  - click: {label: "Open"}
+  - expect_ui: {label: "Recent: continued.npub"}
+  - click: {label: "Recent: continued.npub"}
+  - expect: {query: {q: page_count}, equals: $pages}
+  - expect: {query: {q: object, id: $a}, path: /kind/continued_on, equals: true}
+  - expect: {query: {q: object, id: $e}, path: /kind/continued_from, equals: true}
+  - expect: {query: {q: frame_text, frame: $a}, ends_with: "(Continued on page 2)"}
+  - expect: {query: {q: frame_text, frame: $e}, starts_with: "(Continued from page 1)"}
+  - expect: {query: {q: story_text, target: $a}, not_contains: "Continued"}
+  - click: {label: "Export PDF"}
+  - fill: {label: "PDF file", text: "continued.pdf"}
+  - click: {label: "Export"}
+  - expect_pdf:
+      file: continued.pdf
+      page_text:
+        - {page: 1, contains: "(Continued on page 2)"}
+        - {page: 2, contains: "(Continued from page 1)"}
+        - {page: 2, not_contains: "(Continued on page"}
+  - expect_roundtrip: {}

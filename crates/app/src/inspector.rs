@@ -23,6 +23,10 @@ fn buf<'a>(f: &'a mut InspectorFields, key: &'static str) -> &'a mut String {
 /// Width of the right-hand input column.
 const INPUT_W: f32 = 84.0;
 
+/// Labels of the Text box card's continued-notice checkboxes (Publisher's wording).
+const CONTINUED_ON_LABEL: &str = "Include 'Continued on page…'";
+const CONTINUED_FROM_LABEL: &str = "Include 'Continued from page…'";
+
 /// A labelled row: muted label left, the input right-aligned. `add` receives the label's id for `labelled_by`.
 fn row<R>(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui, egui::Id) -> R) -> R {
     let p = widgets::pal(ui);
@@ -583,6 +587,7 @@ impl NewpubApp {
                 self.go_to_box(id, forward, false);
             }
         }
+        self.continued_toggles(ui, id, t.continued_on, t.continued_from);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
             if widgets::small_button(ui, icons::LINK, "Link to Next Box", linking, !has_next)
@@ -612,6 +617,109 @@ impl NewpubApp {
                 self.act(newpub_engine::SessionAction::Autoflow { frame: id });
             }
         });
+    }
+
+    /// The Text box card's "Include 'Continued on page…'" and "Include 'Continued from page…'" checkboxes
+    /// (Publisher: Format Text Box > Text Box). The layout writes "(Continued on page N)" at the bottom of a box
+    /// whose story goes on to a box on another page, and "(Continued from page N)" at the top of a box whose
+    /// story comes from a box on another page: generated, never typed, one line of the box each. A toggle
+    /// applies to every selected text box as one undo step. Where a notice can never appear (an unlinked box, the
+    /// last or first box, a master page) the checkbox is greyed out and its tooltip says why; a flag that is
+    /// already on stays clickable so it can be cleared.
+    fn continued_toggles(&mut self, ui: &mut egui::Ui, id: Id, on: bool, from: bool) {
+        let doc = self.session.doc();
+        let pos = self.chain_of(id);
+        let here = doc.page_of(id);
+        let on_page = here.is_some();
+        // The neighbouring box's page: its label for the tooltip, and whether it is this page (nothing is drawn then).
+        let page_of = |f: Option<&Id>| f.and_then(|f| doc.page_of(*f)).map(|p| (doc.page_label(p), Some(p) == here));
+        let next = pos.as_ref().and_then(|(i, c)| page_of(c.get(i + 1)));
+        let prev = pos.as_ref().and_then(|(i, c)| page_of(i.checked_sub(1).and_then(|k| c.get(k))));
+        // Every selected text box with its two flags; the first selected box is the one the card shows.
+        let targets: Vec<(Id, bool, bool)> = self
+            .selection
+            .iter()
+            .filter_map(|s| match &doc.objects.get(s)?.kind {
+                ObjectKind::Text(tf) => Some((*s, tf.continued_on, tf.continued_from)),
+                _ => None,
+            })
+            .collect();
+        let mut toggles: Vec<(bool, bool)> = Vec::new();
+        for (is_on, cur, label, page, end_reason, place) in [
+            (
+                true,
+                on,
+                CONTINUED_ON_LABEL,
+                &next,
+                "This is the last box of the story",
+                "at the bottom of this box when the story goes on to a box on another page",
+            ),
+            (
+                false,
+                from,
+                CONTINUED_FROM_LABEL,
+                &prev,
+                "This is the first box of the story",
+                "at the top of this box when the story comes from a box on another page",
+            ),
+        ] {
+            let applicable = on_page && page.is_some();
+            let mixed = targets.iter().any(|(_, o, f)| if is_on { *o != cur } else { *f != cur });
+            let word = if is_on { "on" } else { "from" };
+            let why = if !on_page {
+                "Boxes on a master page have no page number"
+            } else if pos.is_none() {
+                "Link this box to another box first (Link to Next Box)"
+            } else {
+                end_reason
+            };
+            let hover = match page {
+                Some((label, false)) => format!(
+                    "Writes \"(Continued {word} page {label})\" in small italics {place}. The notice is generated, \
+                     not typed: it takes one line of the box and its page number keeps itself up to date."
+                ),
+                Some((_, true)) => format!(
+                    "Nothing is shown yet: the {} box is on this page too. The notice appears {place}; it takes one \
+                     line of the box.",
+                    if is_on { "next" } else { "previous" }
+                ),
+                // Enabled only so a flag set earlier can be cleared.
+                None => format!("No notice is shown now: {}. Untick to clear the setting.", why.to_lowercase()),
+            };
+            let mut v = cur;
+            let r = ui
+                .add_enabled(
+                    applicable || cur,
+                    egui::Checkbox::new(&mut v, RichText::new(label).size(12.0)).indeterminate(mixed),
+                )
+                .on_hover_text(hover)
+                .on_disabled_hover_text(why);
+            if r.changed() {
+                // A mixed selection resolves to "on", as checkboxes do elsewhere.
+                toggles.push((is_on, mixed || !cur));
+            }
+        }
+        if toggles.is_empty() {
+            return;
+        }
+        let group = targets.len() > 1 || toggles.len() > 1;
+        if group {
+            self.act(newpub_engine::SessionAction::BeginGroup);
+        }
+        for (is_on, v) in toggles {
+            for (tid, ..) in &targets {
+                let mut patch = TextFramePatch::default();
+                if is_on {
+                    patch.continued_on = Some(v);
+                } else {
+                    patch.continued_from = Some(v);
+                }
+                self.act(Command::SetTextFrame { id: *tid, patch });
+            }
+        }
+        if group {
+            self.act(newpub_engine::SessionAction::EndGroup);
+        }
     }
 
     // ---- Shape ----------------------------------------------------------------------------------------------
