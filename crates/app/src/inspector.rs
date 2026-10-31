@@ -266,7 +266,8 @@ impl NewpubApp {
         ui.add_space(12.0);
         card(ui, icons::LIGHTBULB, "Quick tips", |ui| {
             for tip in [
-                "Click an object to select it; Shift-click adds to the selection.",
+                "Click an object to select it. Shift-click adds another or takes one out again.",
+                "Drag across an empty part of the page to select everything inside the box; hold Shift to add to the selection.",
                 "Draw a Text Box, then type to fill it.",
                 "Arrow keys nudge the selection; hold Shift for bigger steps.",
                 "Drag a corner handle to resize.",
@@ -934,7 +935,10 @@ impl NewpubApp {
             }
         });
         if !multi {
-            widgets::hint(ui, "Align to the page. Select several objects to align them to each other.");
+            widgets::hint(
+                ui,
+                "Align to the page. Shift-click or drag a box around several objects to align them to each other.",
+            );
         }
         toggle_row(ui, |ui| {
             let dist = ids.len() >= 3;

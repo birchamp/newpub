@@ -145,6 +145,9 @@ pub struct NewpubApp {
     canvas_size: Vec2,
     /// Corner handle being dragged: object, corner index (0 TL, 1 TR, 2 BL, 3 BR), original rect.
     resizing: Option<(Id, usize, Rect)>,
+    /// A marquee drag with the Select tool over empty page: the selection kept under it (what Shift adds to;
+    /// empty otherwise). The rectangle itself is `drag_start`..`drag_now`.
+    marquee: Option<Vec<Id>>,
     /// The last coalescable edit: key, session revision right after it, time.
     run: Option<(String, u64, Instant)>,
     /// Accumulated nudge of the current run, in points.
@@ -244,6 +247,7 @@ impl NewpubApp {
             fitted: false,
             canvas_size: Vec2::ZERO,
             resizing: None,
+            marquee: None,
             run: None,
             run_delta: (0.0, 0.0),
             fields: Fields::default(),
@@ -964,8 +968,14 @@ impl NewpubApp {
             }
         }
         if resp.drag_started() {
-            // egui reports a drag once the pointer has moved; the gesture began at the press origin.
+            // egui reports a drag once the pointer has moved; the gesture began at the press origin. A gesture
+            // that never saw its release (the document was replaced under it) must not shape this one.
+            self.moving = None;
+            self.resizing = None;
+            self.marquee = None;
             self.drag_start = resp.ctx.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos());
+            // Shift as held when the drag begins (egui keeps no modifiers for the press itself).
+            let shift = resp.ctx.input(|i| i.modifiers.shift);
             if self.tool == Tool::Select
                 && let Some(p) = self.drag_start
             {
@@ -976,7 +986,13 @@ impl NewpubApp {
                     match self.hit(x, y) {
                         Some(id) => {
                             if !self.selection.contains(&id) {
-                                self.selection = vec![id];
+                                // Shift-drag on another object adds it and moves the whole selection.
+                                if shift {
+                                    self.end_text_edit();
+                                    self.selection.push(id);
+                                } else {
+                                    self.selection = vec![id];
+                                }
                             }
                             self.moving = Some(Vec2::ZERO);
                         }
@@ -986,7 +1002,15 @@ impl NewpubApp {
                                 self.view.guide_drag =
                                     Some(guides_ui::GuideDrag { id: Some(g.id), orientation: g.orientation });
                             }
-                            None => self.selection.clear(),
+                            // Empty page: a marquee. Shift keeps the current selection (still shown while the
+                            // rectangle is dragged) and adds to it on release.
+                            None => {
+                                self.end_text_edit();
+                                if !shift {
+                                    self.selection.clear();
+                                }
+                                self.marquee = Some(self.selection.clone());
+                            }
                         },
                     }
                 }
@@ -1006,7 +1030,8 @@ impl NewpubApp {
             return;
         }
         if resp.drag_stopped() {
-            let (a, b) = (self.drag_start, self.drag_now.or(resp.interact_pointer_pos()));
+            let b = self.drag_now.or(resp.interact_pointer_pos()).or(resp.ctx.pointer_latest_pos());
+            let a = self.drag_start;
             self.drag_now = b;
             if let Some((id, r)) = self.resize_preview() {
                 self.resizing = None;
@@ -1020,10 +1045,18 @@ impl NewpubApp {
                     let ids = self.selection.clone();
                     self.act(Command::MoveObjects { ids, dx: Length(m.x as f64), dy: Length(m.y as f64) });
                 }
+            } else if let Some(keep) = self.marquee.take() {
+                // Escape ends the drag in egui too: that cancels the marquee rather than taking what is under it.
+                if resp.ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.selection = keep;
+                } else if let (Some(a), Some(b)) = (a, b) {
+                    self.select_marquee(&keep, a, b);
+                }
             } else if let (Some(a), Some(b)) = (a, b) {
                 self.create_from_drag(a, b);
             }
             self.resizing = None;
+            self.marquee = None;
             self.drag_start = None;
             self.drag_now = None;
         }
@@ -1045,11 +1078,24 @@ impl NewpubApp {
                 let editable = hit.filter(|id| self.selection == [*id]).and_then(|id| self.editable_at(id, x, y));
                 let shift = resp.ctx.input(|i| i.modifiers.shift);
                 match editable {
+                    // Shift-click on another cell of the table being edited selects a block.
                     Some(ed) if shift && self.extend_cell_selection(ed) => {}
-                    Some(ed) => {
+                    // Inside the one selected editable: the click places the caret; while editing, Shift
+                    // extends the text selection instead.
+                    Some(ed) if !shift || self.caret_in(ed).is_some() => {
                         let pos = self.hit_text(ed, x, y);
-                        let extend = shift && self.caret_in(ed).is_some();
-                        self.place_caret(ed, pos, extend);
+                        self.place_caret(ed, pos, shift);
+                    }
+                    // Shift-click adds an object to the selection or takes it out; on empty page it keeps it.
+                    _ if shift => {
+                        if let Some(id) = hit {
+                            self.end_text_edit();
+                            if self.selection.contains(&id) {
+                                self.selection.retain(|s| *s != id);
+                            } else {
+                                self.selection.push(id);
+                            }
+                        }
                     }
                     _ => {
                         self.end_text_edit();
@@ -1109,6 +1155,33 @@ impl NewpubApp {
                     ERect::from_center_size(c, Vec2::splat(16.0)).contains(p)
                 })
         })
+    }
+
+    /// The end of a marquee drag: selects every object on the current page that lies entirely inside the
+    /// rectangle `a`..`b` (screen points), plus the ids in `keep` (the selection held before a Shift-drag). As
+    /// in Publisher, an object the rectangle only crosses is not taken, so a sweep over a few small objects does
+    /// not catch the story box under them. Objects that are not shown (hidden, or on a hidden layer) are
+    /// skipped, as the Selection Pane is the place to pick those; so are locked objects (their own lock or
+    /// their layer's), which would make the engine refuse to move or align the whole selection.
+    fn select_marquee(&mut self, keep: &[Id], a: Pos2, b: Pos2) {
+        let (x0, y0) = self.screen_to_page(a);
+        let (x1, y1) = self.screen_to_page(b);
+        let m = Rect::new(x0.min(x1), y0.min(y1), (x1 - x0).abs(), (y1 - y0).abs());
+        let doc = self.session.doc();
+        let Some(page) = doc.pages.get(self.page) else { return };
+        let layer = |o: &core::Object| o.layer.and_then(|l| doc.layers.iter().find(|x| x.id == l));
+        let shown = |o: &core::Object| !o.hidden && layer(o).is_none_or(|l| l.visible);
+        let locked = |o: &core::Object| o.locked || layer(o).is_some_and(|l| l.locked);
+        let inside = |r: &Rect| r.x >= m.x && r.y >= m.y && r.right() <= m.right() && r.bottom() <= m.bottom();
+        // Page order (back to front), the order Select All gives too.
+        self.selection = page
+            .objects
+            .iter()
+            .copied()
+            .filter(|id| {
+                keep.contains(id) || doc.objects.get(id).is_some_and(|o| shown(o) && !locked(o) && inside(&o.rect))
+            })
+            .collect();
     }
 
     fn create_from_drag(&mut self, a: Pos2, b: Pos2) {

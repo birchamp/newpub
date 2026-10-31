@@ -1,0 +1,144 @@
+id: UI-SH-009
+title: Multiple selection on the canvas — Shift-click adds and removes objects, a marquee takes what lies entirely inside it (Shift keeps the selection), the status bar counts the selection, one nudge / undo / redo moves them all, save and open keep the moved rects, Shift-click inside an edited text box still extends the text selection, Shift-drag on another object moves the whole selection
+covers: [UI-28]
+ui: true
+steps:
+  # --- three rectangles: A and B side by side at the top, C below A (each 72 x 72 pt)
+  - click: {label: "Rectangle"}
+  - drag: {from: [1in, 1in], to: [2in, 2in]}
+  - click: {label: "Rectangle"}
+  - drag: {from: [3in, 1in], to: [4in, 2in]}
+  - click: {label: "Rectangle"}
+  - drag: {from: [1in, 4in], to: [2in, 5in]}
+  - expect: {query: {q: object_count, page: 0}, equals: 3}
+  - expect: {query: {q: page_objects, page: 0}, path: /0, gt: 0, as: a}
+  - expect: {query: {q: page_objects, page: 0}, path: /1, gt: 0, as: b}
+  - expect: {query: {q: page_objects, page: 0}, path: /2, gt: 0, as: c}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [72, 0.5]}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [72, 0.5]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [216, 0.5]}
+  - expect: {query: {q: object, id: $c}, path: /rect/y, approx: [288, 0.5]}
+  - expect: {query: {q: view}, path: /tool, equals: Select}
+
+  # --- Shift-click: a plain click selects one; Shift adds in click order, Shift on a selected one removes it,
+  # Shift on empty page keeps the selection, a plain click on empty page clears it
+  - click_at: [1.5in, 1.5in]
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect_ui: {label: "2 objects selected", exists: false}
+  - click_at: {at: [3.5in, 1.5in], shift: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$a, $b]}
+  - expect_ui: {label: "2 objects selected"}
+  - click_at: {at: [1.5in, 4.5in], shift: true}
+  - expect: {query: {q: view}, path: /selection, len: 3}
+  - expect: {query: {q: view}, path: /selection, equals: [$a, $b, $c]}
+  - expect_ui: {label: "3 objects selected"}
+  - expect_ui: {label: "2 objects selected", exists: false}
+  - click_at: {at: [3.5in, 1.5in], shift: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$a, $c]}
+  - expect_ui: {label: "2 objects selected"}
+  - click_at: {at: [6in, 8in], shift: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$a, $c]}
+  - click_at: [6in, 8in]
+  - expect: {query: {q: view}, path: /selection, len: 0}
+  - expect_ui: {label: "2 objects selected", exists: false}
+
+  # --- marquee: only objects entirely inside are taken, in page order (back to front)
+  - drag: {from: [0.5in, 0.5in], to: [4.5in, 2.5in]}
+  - expect: {query: {q: view}, path: /selection, equals: [$a, $b]}
+  - expect_ui: {label: "2 objects selected"}
+  # a marquee that only crosses C selects nothing (and clears what was selected)
+  - drag: {from: [0.5in, 3.5in], to: [1.5in, 6in]}
+  - expect: {query: {q: view}, path: /selection, len: 0}
+  - expect_ui: {label: "2 objects selected", exists: false}
+  # a Shift marquee adds to the selection instead of replacing it
+  - drag: {from: [0.5in, 0.5in], to: [4.5in, 2.5in]}
+  - expect: {query: {q: view}, path: /selection, equals: [$a, $b]}
+  - drag: {from: [0.5in, 3.5in], to: [2.5in, 5.5in], shift: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$a, $b, $c]}
+  - expect_ui: {label: "3 objects selected"}
+  # the marquee itself created nothing
+  - expect: {query: {q: object_count, page: 0}, equals: 3}
+
+  # --- one nudge moves all three by 1 pt; undo restores all three in one step; redo moves them again
+  - key: {key: "ArrowRight"}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [73, 0.25]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [217, 0.25]}
+  - expect: {query: {q: object, id: $c}, path: /rect/x, approx: [73, 0.25]}
+  - expect: {query: {q: view}, path: /selection, equals: [$a, $b, $c]}
+  - key: {key: "Z", command: true}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [72, 0.25]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [216, 0.25]}
+  - expect: {query: {q: object, id: $c}, path: /rect/x, approx: [72, 0.25]}
+  - key: {key: "Y", command: true}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [73, 0.25]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [217, 0.25]}
+  - expect: {query: {q: object, id: $c}, path: /rect/x, approx: [73, 0.25]}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [72, 0.25]}
+
+  # --- round trip: the engine's save / open equality, then Save -> New -> Open through the dialogs
+  - expect_roundtrip: {}
+  - click: {label: "Save"}
+  - expect_ui: {label: "Save Publication"}
+  - fill: {label: "File name", text: "multi-select.npub"}
+  - click: {label: "Save File"}
+  - expect: {query: {q: session}, path: /dirty, equals: false}
+  - click: {label: "New"}
+  - click: {label: "Create"}
+  - expect: {query: {q: object_count, page: 0}, equals: 0}
+  - click: {label: "Open"}
+  - expect_ui: {label: "Recent: multi-select.npub"}
+  - click: {label: "Recent: multi-select.npub"}
+  - expect: {query: {q: object_count, page: 0}, equals: 3}
+  - expect: {query: {q: page_objects, page: 0}, equals: [$a, $b, $c]}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [73, 0.25]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [217, 0.25]}
+  - expect: {query: {q: object, id: $c}, path: /rect/x, approx: [73, 0.25]}
+  - expect: {query: {q: object, id: $c}, path: /rect/w, approx: [72, 0.25]}
+
+  # --- no regression in text editing: inside the one selected text box a Shift-click still extends the text
+  # selection; a Shift-click on another object ends editing and adds it
+  - click: {label: "Text Box"}
+  - drag: {from: [5in, 4in], to: [7.5in, 5in]}
+  - expect: {query: {q: page_objects, page: 0}, path: /3, gt: 0, as: t}
+  - type: {text: "Hello world"}
+  - expect: {query: {q: view}, path: /editing, equals: true}
+  - expect: {query: {q: view}, path: /text_selection, equals: [11, 11]}
+  - expect: {query: {q: view}, path: /selection, equals: [$t]}
+  - click_at: [5.1in, 4.2in]
+  - expect: {query: {q: view}, path: /text_selection, equals: [0, 0]}
+  - expect: {query: {q: view}, path: /editing, equals: true}
+  - click_at: {at: [7.4in, 4.2in], shift: true}
+  - expect: {query: {q: view}, path: /text_selection/0, equals: 0}
+  - expect: {query: {q: view}, path: /text_selection/1, equals: 11}
+  - expect: {query: {q: view}, path: /selection, equals: [$t]}
+  - expect: {query: {q: view}, path: /editing, equals: true}
+  - click_at: {at: [1.5in, 1.5in], shift: true}
+  - expect: {query: {q: view}, path: /editing, equals: false}
+  - expect: {query: {q: view}, path: /selection, equals: [$t, $a]}
+  - expect_ui: {label: "2 objects selected"}
+  # double-click starts editing T again (and drops A); Escape leaves editing with T selected; Shift-click on
+  # the selected, not edited, T takes it out of the selection
+  - click_at: {at: [6in, 4.5in], double: true}
+  - expect: {query: {q: view}, path: /editing, equals: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$t]}
+  - key: {key: "Escape"}
+  - expect: {query: {q: view}, path: /editing, equals: false}
+  - expect: {query: {q: view}, path: /selection, equals: [$t]}
+  - click_at: {at: [6in, 4.5in], shift: true}
+  - expect: {query: {q: view}, path: /selection, len: 0}
+  - expect: {query: {q: view}, path: /editing, equals: false}
+  - expect: {query: {q: story_text, target: $t}, equals: "Hello world"}
+
+  # --- Shift-drag on an unselected object adds it and moves the whole selection; one undo restores both
+  - click_at: [1.5in, 1.5in]
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - drag: {from: [3.5in, 1.5in], to: [4.5in, 1.5in], shift: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$a, $b]}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [145, 1.5]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [289, 1.5]}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [72, 1.5]}
+  - expect: {query: {q: object, id: $c}, path: /rect/x, approx: [73, 0.25]}
+  - key: {key: "Z", command: true}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [73, 0.25]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [217, 0.25]}
+  - expect: {query: {q: view}, path: /selection, equals: [$a, $b]}

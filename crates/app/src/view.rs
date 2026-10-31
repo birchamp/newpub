@@ -377,8 +377,9 @@ impl NewpubApp {
         }
         resp.context_menu(|ui| self.canvas_menu(ui));
         self.canvas_keys(&ctx, &resp);
+        // The rectangle of a drawing tool, or the marquee of the Select tool.
         if let (Some(a), Some(b)) = (self.drag_start, self.drag_now)
-            && self.tool != Tool::Select
+            && (self.tool != Tool::Select || self.marquee.is_some())
         {
             let c = crate::theme::palette(&ctx).primary;
             painter.rect_filled(ERect::from_two_pos(a, b), 0.0, c.gamma_multiply(0.08));

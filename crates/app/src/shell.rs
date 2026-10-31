@@ -270,6 +270,16 @@ impl NewpubApp {
                     .color(p.text_muted)
                     .size(12.0),
             );
+            // Live count of a multiple selection (it never goes stale, unlike `status`).
+            if self.selection.len() > 1 {
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new(ic::SELECTION).font(theme::icon_font(14.0)).color(p.text_muted));
+                ui.label(
+                    egui::RichText::new(format!("{} objects selected", self.selection.len()))
+                        .color(p.text_muted)
+                        .size(12.0),
+                );
+            }
             if !self.status.is_empty() {
                 ui.add_space(8.0);
                 let err = self.status.starts_with("Error");

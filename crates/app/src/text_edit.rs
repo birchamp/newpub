@@ -93,11 +93,14 @@ impl NewpubApp {
         (self.story_id(c.frame)? == self.story_id(frame)?).then_some(c)
     }
 
-    /// What typing and text commands act on: the caret's editable while editing, else the selected text frame.
+    /// What typing and text commands act on: the caret's editable while editing, else the one selected text
+    /// frame. With several objects selected and no caret, nothing: typing or Backspace must not reach a box
+    /// the person did not pick out.
     pub(crate) fn edit_target(&self) -> Option<Id> {
         match self.caret {
             Some(c) if self.selection.contains(&self.holder(c.frame)) => Some(c.frame),
-            _ => self.selected_text_frame(),
+            _ if self.selection.len() == 1 => self.selected_text_frame(),
+            _ => None,
         }
     }
 
