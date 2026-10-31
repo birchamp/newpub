@@ -1,7 +1,7 @@
 //! UI journeys: drive the real egui app through its AccessKit tree with egui_kittest.
 //!
 //! UI steps: `click: {label, button}`, `fill: {label, text}`, `type: {text}`, `key: {key, command, shift}`,
-//! `drag: {from: [x, y], to: [x, y]}` (or `from_ruler`/`to_ruler: top | left` for one end) and `click_at: [x, y]` (page points on the canvas),
+//! `drag: {from: [x, y], to: [x, y], shift}` (or `from_ruler`/`to_ruler: top | left` for one end) and `click_at: [x, y]` (page points on the canvas),
 //! `expect_ui: {label, exists}`, `focus: {label}` (keyboard focus), `scroll: {dx, dy}` (mouse wheel over
 //! the canvas, screen points), `hover: {label}`, `close_window: {}` (the window's close button), `drop_file: {path, at}` (a file
 //! dragged from the desktop and dropped, optionally over a page point), `restart_app: {}` (the app goes away
@@ -179,6 +179,8 @@ fn ui_step(h: &mut Harness<'_, NewpubApp>, ctx: &mut Ctx, step: &Value) -> Resul
         }
         "drag" => {
             // Page points; `from_ruler`/`to_ruler: top | left` start or end on a ruler, level with the other end.
+            // `shift: true` holds Shift for the whole drag, as on a real keyboard.
+            let shift = args.get("shift").and_then(|v| v.as_bool()).unwrap_or(false);
             let ruler = |h: &Harness<'_, NewpubApp>, which: &str| -> Result<egui::Rect> {
                 let label = match which {
                     "top" => "Horizontal ruler",
@@ -211,13 +213,36 @@ fn ui_step(h: &mut Harness<'_, NewpubApp>, ctx: &mut Ctx, step: &Value) -> Resul
             };
             h.hover_at(a);
             h.run_steps(1);
-            h.drag_at(a);
+            if shift {
+                h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+                h.run_steps(1);
+                h.event(egui::Event::PointerButton {
+                    pos: a,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::SHIFT,
+                });
+            } else {
+                h.drag_at(a);
+            }
             h.run_steps(1);
             for i in 1..=4 {
                 h.hover_at(a + (b - a) * (i as f32 / 4.0));
                 h.run_steps(1);
             }
-            h.drop_at(b);
+            if shift {
+                h.event(egui::Event::PointerButton {
+                    pos: b,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::SHIFT,
+                });
+                h.run_steps(1);
+                h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+                h.remove_cursor();
+            } else {
+                h.drop_at(b);
+            }
             settle(h);
         }
         "click_at" => {
@@ -308,6 +333,11 @@ fn ui_step(h: &mut Harness<'_, NewpubApp>, ctx: &mut Ctx, step: &Value) -> Resul
         | "expect_roundtrip" | "expect_files" | "expect_zip" => {
             let s: &mut Session = &mut h.state_mut().session;
             runner::run_step(s, ctx, step)?;
+            if name == "expect_roundtrip" {
+                // The round trip saves through the session, which gives the publication a name: the header's
+                // title grows and its buttons move, so draw a frame before the next click reads their positions.
+                settle(h);
+            }
         }
         other => bail!("{other:?} is not a UI journey step (UI journeys drive the app only through its UI)"),
     }
