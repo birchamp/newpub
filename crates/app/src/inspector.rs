@@ -274,6 +274,13 @@ impl NewpubApp {
             ] {
                 widgets::hint(ui, tip);
             }
+            widgets::hint(
+                ui,
+                &format!(
+                    "Objects snap to the margins, guides and other objects as you drag; hold {} to place freely.",
+                    crate::snap_ui::free_key()
+                ),
+            );
         });
     }
 

@@ -47,7 +47,7 @@ pub(crate) struct DesignState {
     gutter: String,
     base_spacing: String,
     base_offset: String,
-    snapping: bool,
+    pub(crate) snapping: bool,
     layer_name: String,
     layer_sel: Option<Id>,
     sec_start: String,
@@ -203,9 +203,18 @@ impl NewpubApp {
                     self.toggle_win(Win::Baseline);
                 }
                 let on = self.design_ui.snapping;
-                if small_button(ui, ic::MAGNET, "Snap to Guides", on, true).clicked() {
+                if small_button(ui, ic::MAGNET, "Snap to Guides", on, true)
+                    .on_hover_text(format!(
+                        "Objects being moved or resized snap to the margins, guides, page centre and other \
+                         objects. Hold {} while dragging to place freely.",
+                        crate::snap_ui::free_key()
+                    ))
+                    .clicked()
+                {
                     self.design_ui.snapping = !on;
                     self.act(SessionAction::SetSnapping { enabled: !on });
+                    self.status =
+                        if on { "Snap to Guides off: objects move freely".into() } else { "Snap to Guides on".into() };
                 }
             });
         });

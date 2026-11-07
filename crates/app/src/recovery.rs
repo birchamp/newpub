@@ -232,6 +232,7 @@ impl NewpubApp {
                 self.selection.clear();
                 self.end_text_edit();
                 self.view.reset_transient();
+                self.reset_gesture();
                 self.thumbs.clear();
                 if matches!(self.dialog, crate::Dialog::Picker(_)) {
                     self.dialog = crate::Dialog::None;

@@ -69,7 +69,9 @@ impl Session {
                 let (v, h) = self.guide_lines(*page)?;
                 Ok(json!({"vertical": v, "horizontal": h}))
             }
-            Query::Snap { page, rect, ignore } => self.snap(*page, *rect, ignore),
+            Query::Snap { page, rect, ignore, tolerance } => {
+                self.snap(*page, *rect, ignore, tolerance.unwrap_or(SNAP_TOLERANCE))
+            }
             Query::ObjectGeometry { id } => {
                 let o = self.doc.object(*id)?;
                 let u = self.guides.units;
@@ -111,7 +113,7 @@ impl Session {
         Ok((dedup(v), dedup(h)))
     }
 
-    fn snap(&self, page: usize, rect: Rect, ignore: &[Id]) -> Result<Value, EngineError> {
+    fn snap(&self, page: usize, rect: Rect, ignore: &[Id], tolerance: f64) -> Result<Value, EngineError> {
         let p = self.doc.pages.get(page).ok_or(CoreError::NoSuchPage(page))?;
         if self.guides.snapping_off {
             return Ok(json!({"rect": rect, "lines": []}));
@@ -124,14 +126,17 @@ impl Session {
             if ignore.contains(id) {
                 continue;
             }
-            if let Ok(o) = self.doc.object(*id) {
+            // Nothing snaps to an object that is not shown.
+            if let Ok(o) = self.doc.object(*id)
+                && !o.hidden
+            {
                 let r = o.rect;
                 vt.extend([r.x, r.x + r.w / 2.0, r.x + r.w]);
                 ht.extend([r.y, r.y + r.h / 2.0, r.y + r.h]);
             }
         }
-        let sx = best_snap(&[rect.x, rect.x + rect.w / 2.0, rect.x + rect.w], &vt);
-        let sy = best_snap(&[rect.y, rect.y + rect.h / 2.0, rect.y + rect.h], &ht);
+        let sx = best_snap(&[rect.x, rect.x + rect.w / 2.0, rect.x + rect.w], &vt, tolerance);
+        let sy = best_snap(&[rect.y, rect.y + rect.h / 2.0, rect.y + rect.h], &ht, tolerance);
         let mut out = rect;
         let mut lines = Vec::new();
         if let Some((delta, target)) = sx {
@@ -170,13 +175,13 @@ fn dedup(mut v: Vec<f64>) -> Vec<f64> {
     v
 }
 
-/// The closest (shift, target) over all candidate edges within tolerance.
-fn best_snap(edges: &[f64], targets: &[f64]) -> Option<(f64, f64)> {
+/// The closest (shift, target) over all candidate edges within `tolerance`.
+fn best_snap(edges: &[f64], targets: &[f64], tolerance: f64) -> Option<(f64, f64)> {
     let mut best: Option<(f64, f64)> = None;
     for e in edges {
         for t in targets {
             let d = t - e;
-            if d.abs() <= SNAP_TOLERANCE && best.is_none_or(|(bd, _)| d.abs() < bd.abs()) {
+            if d.abs() <= tolerance && best.is_none_or(|(bd, _)| d.abs() < bd.abs()) {
                 best = Some((d, *t));
             }
         }
