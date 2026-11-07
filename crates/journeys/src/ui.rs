@@ -1,7 +1,7 @@
 //! UI journeys: drive the real egui app through its AccessKit tree with egui_kittest.
 //!
 //! UI steps: `click: {label, button}`, `fill: {label, text}`, `type: {text}`, `key: {key, command, shift}`,
-//! `drag: {from: [x, y], to: [x, y], shift}` (or `from_ruler`/`to_ruler: top | left` for one end) and `click_at: [x, y]` (page points on the canvas),
+//! `drag: {from: [x, y], to: [x, y], shift, alt}` (or `from_ruler`/`to_ruler: top | left` for one end) and `click_at: [x, y]` (page points on the canvas),
 //! `expect_ui: {label, exists}`, `focus: {label}` (keyboard focus), `scroll: {dx, dy}` (mouse wheel over
 //! the canvas, screen points), `hover: {label}`, `close_window: {}` (the window's close button), `drop_file: {path, at}` (a file
 //! dragged from the desktop and dropped, optionally over a page point), `restart_app: {}` (the app goes away
@@ -179,8 +179,15 @@ fn ui_step(h: &mut Harness<'_, NewpubApp>, ctx: &mut Ctx, step: &Value) -> Resul
         }
         "drag" => {
             // Page points; `from_ruler`/`to_ruler: top | left` start or end on a ruler, level with the other end.
-            // `shift: true` holds Shift for the whole drag, as on a real keyboard.
-            let shift = args.get("shift").and_then(|v| v.as_bool()).unwrap_or(false);
+            // `shift: true` / `alt: true` hold that key for the whole drag, as on a real keyboard.
+            let mut mods = egui::Modifiers::NONE;
+            if args.get("shift").and_then(|v| v.as_bool()).unwrap_or(false) {
+                mods |= egui::Modifiers::SHIFT;
+            }
+            if args.get("alt").and_then(|v| v.as_bool()).unwrap_or(false) {
+                mods |= egui::Modifiers::ALT;
+            }
+            let held = mods != egui::Modifiers::NONE;
             let ruler = |h: &Harness<'_, NewpubApp>, which: &str| -> Result<egui::Rect> {
                 let label = match which {
                     "top" => "Horizontal ruler",
@@ -213,14 +220,14 @@ fn ui_step(h: &mut Harness<'_, NewpubApp>, ctx: &mut Ctx, step: &Value) -> Resul
             };
             h.hover_at(a);
             h.run_steps(1);
-            if shift {
-                h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+            if held {
+                h.event(egui::Event::ModifiersChanged(mods));
                 h.run_steps(1);
                 h.event(egui::Event::PointerButton {
                     pos: a,
                     button: egui::PointerButton::Primary,
                     pressed: true,
-                    modifiers: egui::Modifiers::SHIFT,
+                    modifiers: mods,
                 });
             } else {
                 h.drag_at(a);
@@ -230,12 +237,12 @@ fn ui_step(h: &mut Harness<'_, NewpubApp>, ctx: &mut Ctx, step: &Value) -> Resul
                 h.hover_at(a + (b - a) * (i as f32 / 4.0));
                 h.run_steps(1);
             }
-            if shift {
+            if held {
                 h.event(egui::Event::PointerButton {
                     pos: b,
                     button: egui::PointerButton::Primary,
                     pressed: false,
-                    modifiers: egui::Modifiers::SHIFT,
+                    modifiers: mods,
                 });
                 h.run_steps(1);
                 h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));

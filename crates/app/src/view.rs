@@ -74,7 +74,7 @@ impl Default for ViewState {
     }
 }
 
-fn units_code(u: Units) -> &'static str {
+pub(crate) fn units_code(u: Units) -> &'static str {
     match u {
         Units::In => "in",
         Units::Cm => "cm",
@@ -95,7 +95,7 @@ fn units_name(u: Units) -> &'static str {
 }
 
 /// Points per unit.
-fn units_points(u: Units) -> f64 {
+pub(crate) fn units_points(u: Units) -> f64 {
     match u {
         Units::In => 72.0,
         Units::Cm => 72.0 / 2.54,
@@ -175,6 +175,7 @@ impl NewpubApp {
     /// Extra fields of `view_state`.
     pub(crate) fn view_extra(&self, v: &mut serde_json::Value) {
         v["units"] = units_code(self.view.units).into();
+        v["snapping"] = self.design_ui.snapping.into();
         v["scroll"] = serde_json::json!([self.view.scroll.x, self.view.scroll.y]);
         v["spread"] = self.view.spread.into();
         v["visible_pages"] = serde_json::json!(self.visible_pages());
@@ -350,6 +351,8 @@ impl NewpubApp {
         self.draw_guides(&painter);
         self.draw_ruler_guides(&painter, cv, ctx.pointer_latest_pos().filter(|_| self.view.guide_drag.is_some()));
         self.draw_hover(&painter, ctx.pointer_hover_pos().filter(|p| cv.contains(*p)));
+        // Under the selection, so its outline and handles stay on top (the same one-frame lag as the preview).
+        self.draw_snap_lines(&painter);
         self.draw_selection(&painter);
         self.draw_cell_selection(&painter);
         self.draw_text_edit(&painter);

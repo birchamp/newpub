@@ -37,6 +37,7 @@ impl Host for NewpubApp {
         self.selection.clear();
         self.end_text_edit();
         self.view.reset_transient();
+        self.reset_gesture();
         self.thumbs.clear();
         if matches!(self.dialog, Dialog::Picker(_)) {
             self.dialog = Dialog::None;

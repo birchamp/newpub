@@ -1,0 +1,159 @@
+id: UI-SN-001
+title: Snapping on the canvas — a moved object snaps its edges to another object's edges and its centre to the page centre, nothing snaps when far away, Alt places freely, the Page Design "Snap to Guides" button turns it off and on, a resize snaps only the dragged edge, a multiple selection snaps as one box to a ruler guide in one undo step, arrow-key nudges never snap, and the snapped rects survive save / open
+covers: [UI-29]
+ui: true
+steps:
+  # --- two 1in boxes placed by the engine, so their rects are exact: A at (72, 72), B at (200, 300).
+  # Letter page, 36 pt margins: the vertical targets are 0, 36, 306, 576, 612 and A's 72 / 108 / 144; the
+  # horizontal ones 0, 36, 396, 756, 792 and A's 72 / 108 / 144. The harness zoom is about 0.71, so the snap
+  # distance (6 screen px) is about 8.4 pt: snapped cases end 3 pt from a target, unsnapped ones 15 pt or more.
+  - agent: {tool: newpub_action, args: {action: add_shape, args: {page: 0, rect: [72, 72, 72, 72], kind: rect, fill: "#3366cc"}}, path: /created/0, as: a}
+  - agent: {tool: newpub_action, args: {action: add_shape, args: {page: 0, rect: [200, 300, 72, 72], kind: rect, fill: "#cc6633"}}, path: /created/0, as: b}
+  - expect: {query: {q: object_count, page: 0}, equals: 2}
+  - expect: {query: {q: object, id: $a}, path: /rect, equals: {x: 72, y: 72, w: 72, h: 72}}
+  - expect: {query: {q: object, id: $b}, path: /rect, equals: {x: 200, y: 300, w: 72, h: 72}}
+  - expect: {query: {q: view}, path: /tool, equals: Select}
+  - expect: {query: {q: view}, path: /snapping, equals: true}
+  - expect: {query: {q: view}, path: /zoom, gt: 0.6}
+  - expect: {query: {q: view}, path: /zoom, lt: 1.0}
+  # the status bar reads the selection's position and size in inches
+  - click_at: [108, 108]
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect_ui: {label: "1, 1 · 1 × 1 in"}
+
+  # --- 1. move: B's left edge, dropped 3 pt right of A's left edge (72), snaps onto it; y stays where the
+  # pointer put it (310: B's edges 310 / 346 / 372 are 24 pt or more from every horizontal target)
+  - drag: {from: [236, 336], to: [111, 346]}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [72, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [310, 1.5]}
+  - expect: {query: {q: object, id: $b}, path: /rect/w, equals: 72}
+  - expect: {query: {q: object, id: $b}, path: /rect/h, equals: 72}
+  - expect: {query: {q: object, id: $a}, path: /rect, equals: {x: 72, y: 72, w: 72, h: 72}}
+  # the drag was one undo step: undo puts B back exactly, redo snaps it again
+  - key: {key: "Z", command: true}
+  - expect: {query: {q: object, id: $b}, path: /rect, equals: {x: 200, y: 300, w: 72, h: 72}}
+  - key: {key: "Y", command: true}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [72, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [310, 1.5]}
+
+  # --- 2. B's centre, dropped 3 pt right of the page centre line (306), snaps onto it: x = 306 - 36
+  - drag: {from: [108, 346], to: [309, 336]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [270, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [300, 1.5]}
+
+  # --- 3. far from everything (36 pt and 84 pt from the nearest targets): the raw drop
+  - drag: {from: [306, 336], to: [216, 516]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [180, 1.5]}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [480, 1.5]}
+  - expect: {query: {q: object, id: $b}, path: /rect/w, equals: 72}
+
+  # --- 4. Alt held for the drag: the same 3 pt offset from A's left edge as in (1) is kept
+  - drag: {from: [216, 516], to: [111, 516], alt: true}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [75, 1.5]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, gt: 73.5}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [480, 1.5]}
+
+  # --- 5. "Snap to Guides" off on the Page Design tab: B's left edge dropped 3 pt right of A's right edge
+  # (144) stays at 147; on again: dropped 3 pt right of A's left edge and 3 pt below A's bottom edge, both axes
+  # snap at once: B sits exactly under A at (72, 144)
+  - click: {label: "Page Design"}
+  - click: {label: "Snap to Guides"}
+  - expect: {query: {q: view}, path: /snapping, equals: false}
+  - drag: {from: [111, 516], to: [183, 516]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [147, 1.5]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, gt: 145.5}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [480, 1.5]}
+  - click: {label: "Snap to Guides"}
+  - expect: {query: {q: view}, path: /snapping, equals: true}
+  - drag: {from: [183, 516], to: [111, 183]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [72, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [144, 0.01]}
+  - expect_ui: {label: "1, 2 · 1 × 1 in"}
+  - click: {label: "Home"}
+
+  # --- 6. resize: the right-edge handle dropped 3 pt short of the right margin (576) snaps the right edge onto
+  # it; the left edge, top and height do not move. Undo takes the resize back in one step. Then the bottom
+  # handle dropped 3 pt short of the bottom margin (756) snaps the bottom edge onto it: B becomes 1 x 8.5 in.
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - drag: {from: [144, 180], to: [573, 180]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [72, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/w, approx: [504, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/h, equals: 72}
+  - expect_ui: {label: "1, 2 · 7 × 1 in"}
+  - key: {key: "Z", command: true}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [72, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/w, equals: 72}
+  - drag: {from: [108, 216], to: [108, 753]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [72, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/w, equals: 72}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/h, approx: [612, 0.01]}
+  - expect_ui: {label: "1, 2 · 1 × 8.5 in"}
+  - expect: {query: {q: object, id: $a}, path: /rect, equals: {x: 72, y: 72, w: 72, h: 72}}
+
+  # --- 7. a multiple selection moves as one box: a ruler guide at 4in (288); A and B together span x 72..144,
+  # y 72..756; dropped with the group's left edge 3 pt right of the guide, both land on x = 288 in one undo step
+  - agent: {tool: newpub_action, args: {action: add_guide, args: {page: 0, orientation: vertical, pos: "4in"}}}
+  - expect: {query: {q: guides, page: 0}, path: /vertical, contains: 288}
+  - click_at: [108, 108]
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - click_at: {at: [108, 450], shift: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$a, $b]}
+  - expect_ui: {label: "2 objects selected"}
+  - expect_ui: {label: "1, 1 · 1 × 9.5 in"}
+  - drag: {from: [108, 450], to: [327, 450]}
+  - expect: {query: {q: view}, path: /selection, equals: [$a, $b]}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [288, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [288, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [72, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/w, equals: 72}
+  - expect: {query: {q: object, id: $b}, path: /rect/h, approx: [612, 0.01]}
+  - expect_ui: {label: "4, 1 · 1 × 9.5 in"}
+  - key: {key: "Z", command: true}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [72, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [72, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [72, 0.01]}
+  - key: {key: "Y", command: true}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [288, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [288, 0.01]}
+
+  # --- 8. arrow keys never snap: from the guide, two nudges right go 1 pt each (a snapping nudge would fall
+  # back onto 288); two nudges left come back
+  - key: {key: "ArrowRight"}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [289, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [289, 0.01]}
+  - key: {key: "ArrowRight"}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [290, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [290, 0.01]}
+  - key: {key: "ArrowLeft"}
+  - key: {key: "ArrowLeft"}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [288, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [288, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [72, 0.01]}
+
+  # --- 9. round trip: the engine's save / open equality, then Save -> New -> Open through the dialogs keep
+  # the snapped rects and the guide
+  - expect_roundtrip: {}
+  - click: {label: "Save"}
+  - expect_ui: {label: "Save Publication"}
+  - fill: {label: "File name", text: "snapping.npub"}
+  - click: {label: "Save File"}
+  - expect: {query: {q: session}, path: /dirty, equals: false}
+  - click: {label: "New"}
+  - click: {label: "Create"}
+  - expect: {query: {q: object_count, page: 0}, equals: 0}
+  - click: {label: "Open"}
+  - expect_ui: {label: "Recent: snapping.npub"}
+  - click: {label: "Recent: snapping.npub"}
+  - expect: {query: {q: object_count, page: 0}, equals: 2}
+  - expect: {query: {q: page_objects, page: 0}, equals: [$a, $b]}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [288, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [72, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [288, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/w, equals: 72}
+  - expect: {query: {q: object, id: $b}, path: /rect/h, approx: [612, 0.01]}
+  - expect: {query: {q: guides, page: 0}, path: /vertical, contains: 288}

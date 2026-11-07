@@ -19,6 +19,7 @@ mod picker;
 mod print;
 mod recent;
 mod recovery;
+mod snap_ui;
 pub use recent::config_dir;
 mod shell;
 mod styles_ui;
@@ -148,6 +149,8 @@ pub struct NewpubApp {
     /// A marquee drag with the Select tool over empty page: the selection kept under it (what Shift adds to;
     /// empty otherwise). The rectangle itself is `drag_start`..`drag_now`.
     marquee: Option<Vec<Id>>,
+    /// What the live move or resize snapped to (snap_ui.rs).
+    snap: snap_ui::SnapState,
     /// The last coalescable edit: key, session revision right after it, time.
     run: Option<(String, u64, Instant)>,
     /// Accumulated nudge of the current run, in points.
@@ -248,6 +251,7 @@ impl NewpubApp {
             canvas_size: Vec2::ZERO,
             resizing: None,
             marquee: None,
+            snap: snap_ui::SnapState::default(),
             run: None,
             run_delta: (0.0, 0.0),
             fields: Fields::default(),
@@ -304,6 +308,7 @@ impl NewpubApp {
         self.selection.clear();
         self.end_text_edit();
         self.view.reset_transient();
+        self.reset_gesture();
         self.thumbs.clear();
         if matches!(self.dialog, Dialog::Picker(_)) {
             self.dialog = Dialog::None;
@@ -442,6 +447,17 @@ impl NewpubApp {
     }
 
     /// Screen position of a document point on the current page (used by UI journeys).
+    /// Forgets a live canvas gesture (move, resize, marquee and its snap). Called where the document is
+    /// replaced under the pointer, so a release cannot act on objects that no longer exist.
+    pub(crate) fn reset_gesture(&mut self) {
+        self.moving = None;
+        self.resizing = None;
+        self.marquee = None;
+        self.snap = snap_ui::SnapState::default();
+        self.drag_start = None;
+        self.drag_now = None;
+    }
+
     pub fn page_to_screen(&self, x: f64, y: f64) -> Pos2 {
         self.page_origin + Vec2::new(x as f32 * self.zoom, y as f32 * self.zoom)
     }
@@ -881,7 +897,8 @@ impl NewpubApp {
     fn resize_preview(&self) -> Option<(Id, Rect)> {
         let (id, handle, orig) = self.resizing?;
         let (a, b) = (self.drag_start?, self.drag_now?);
-        let d = (b - a) / self.zoom;
+        // The snap moves only the dragged edges, which are exactly the ones the pointer offset moves.
+        let d = (b - a) / self.zoom + self.snap.delta;
         let (dx, dy) = (d.x as f64, d.y as f64);
         let (mut x0, mut y0, mut x1, mut y1) = (orig.x, orig.y, orig.right(), orig.bottom());
         match handle {
@@ -973,6 +990,7 @@ impl NewpubApp {
             self.moving = None;
             self.resizing = None;
             self.marquee = None;
+            self.snap = snap_ui::SnapState::default();
             self.drag_start = resp.ctx.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos());
             // Shift as held when the drag begins (egui keeps no modifiers for the press itself).
             let shift = resp.ctx.input(|i| i.modifiers.shift);
@@ -1016,10 +1034,15 @@ impl NewpubApp {
                 }
             }
         }
+        // Alt is read every frame, so pressing or releasing it in the middle of a drag takes effect at once.
+        let alt = resp.ctx.input(|i| i.modifiers.alt);
         if resp.dragged() {
             self.drag_now = resp.interact_pointer_pos();
             if let (Some(m), Some(a), Some(b)) = (self.moving.as_mut(), self.drag_start, self.drag_now) {
                 *m = (b - a) / self.zoom;
+            }
+            if self.moving.is_some() || self.resizing.is_some() {
+                self.update_snap(alt);
             }
         }
         if resp.drag_stopped() && self.view.guide_drag.is_some() {
@@ -1033,6 +1056,12 @@ impl NewpubApp {
             let b = self.drag_now.or(resp.interact_pointer_pos()).or(resp.ctx.pointer_latest_pos());
             let a = self.drag_start;
             self.drag_now = b;
+            if let (Some(m), Some(a), Some(b)) = (self.moving.as_mut(), a, b) {
+                *m = (b - a) / self.zoom;
+            }
+            if self.moving.is_some() || self.resizing.is_some() {
+                self.update_snap(alt);
+            }
             if let Some((id, r)) = self.resize_preview() {
                 self.resizing = None;
                 if let Some(o) = self.session.doc().objects.get(&id)
@@ -1057,6 +1086,7 @@ impl NewpubApp {
             }
             self.resizing = None;
             self.marquee = None;
+            self.snap = snap_ui::SnapState::default();
             self.drag_start = None;
             self.drag_now = None;
         }

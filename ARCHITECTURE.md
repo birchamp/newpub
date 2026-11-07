@@ -251,6 +251,7 @@ file-level copyleft. The format notes are in crates/io-pub/FORMAT-NOTES.md.
 | 2026-10-09 | Layout `fonts::substitutes`: missing Windows fonts resolve to bundled stand-ins (Liberation for Times New Roman/Arial, Carlito for Calibri, else by kind) before the generic fallback; `char_box` also reports `page_x`/`page_baseline`; `.pub` import rewritten (v2002 + Publisher 98/2000 readers over one IR) | Real .pub import (PI-01..PI-07) |
 | 2026-10-10 | `newpub-agent` crate: `Host` trait (impl for `Session` and `NewpubApp`), `tools()`, `call_tool`, `handle` (JSON-RPC), `serve_stdio`, `stdio_link`/`Link`, `status`, embedded `REFERENCE`; app `--agent`, `NewpubApp::attach_agent`, `sync_after_change`; runner step `agent`; app `view` query reports `status`; CI checks `tools/agent/reference.py --check` and runs the crate's stdio test | AG-01, AG-02 |
 | 2026-10-31 | App only (no engine changes): canvas multi-selection (`NewpubApp.marquee`; Shift-click toggles, a Select-tool drag over empty page is a marquee); runner `drag` takes `shift: true`; the runner draws a frame after `expect_roundtrip` | UI-28 |
+| 2026-11-07 | `Query::Snap` takes an optional `tolerance` (points; default 6, unchanged); the app snaps canvas moves and resizes through it with 6 screen px at the current zoom (`NewpubApp.snap`, crates/app/src/snap_ui.rs); runner `drag` takes `alt: true` | UI-29 |
 | 2026-10-09 | App only (no engine changes): `ViewState.link_from`, `cell_extent`, `guide_drag`, `canvas_area`; `Dialog::InsertText`, `Dialog::SaveTemplate`; app `view` query reports `table_cell` and `table_selection`; page renders capped at the GPU's maximum texture side. Runner: widgets are scrolled into view with the mouse wheel before `click`/`fill`, Shift is held for a whole shift-click, a control is preferred over a caption with the same name, `step_dt` 1/30 s | UI-19..UI-23 |
 
 ## 12. Predecessor survey (NewsPub, Electron + React + TS) and what we adopt
@@ -274,7 +275,8 @@ both screen and PDF.
   **Tab cycles through the frames of the selected story**; Esc deselects or leaves text editing; Enter starts editing. See UI-07.
 - Snapping tolerance is 6 screen px. Targets are page edges, margins, page centre, and sibling objects' edges and centres. When
   moving, the closest match per axis wins; when resizing, only the dragged edges snap. No snapping while nudging. Same as GD-03 plus
-  the page-centre target.
+  the page-centre target. On the canvas (UI-29) the whole selection snaps as one rectangle, a line across the page shows the
+  target while the drag is live, and holding Alt places freely (Publisher's behaviour).
 - Undo grouping: a typing burst is one step (we coalesce on contiguous insertion; the predecessor used 900 ms), and a drag
   gesture is one step.
 - Spread view: page 1 alone on the right, then 2+3, 4+5 (matches Publisher's facing-pages display and our `spreads` query).

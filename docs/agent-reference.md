@@ -1215,10 +1215,11 @@ Guides on a page (margin grid, page and master ruler guides): `{vertical: [x…]
 - `page`: `usize`
 
 ### `snap`
-Snap a proposed rect on a page: `{rect, lines: [{orientation, pos}]}`.
+Snap a proposed rect on a page: `{rect, lines: [{orientation, pos}]}`. `tolerance` is the snap distance in points (default 6; the app passes 6 screen pixels at the current zoom).
 - `page`: `usize`
 - `rect`: `Rect`
 - `ignore`: `Vec<Id>` *(optional)*
+- `tolerance`: `Option<f64>` *(optional)*
 
 ### `object_geometry`
 Object geometry formatted in the display unit: `{x, y, w, h, rotation}` strings.

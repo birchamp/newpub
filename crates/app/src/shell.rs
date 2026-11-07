@@ -308,6 +308,16 @@ impl NewpubApp {
                 }
                 ui.add_space(6.0);
                 self.units_combo(ui);
+                // Position and size of the selection, live while it is dragged or resized (Publisher's status
+                // bar). Last in this right-to-left group, so its changing width moves nothing else.
+                if let Some(r) = self.readout_rect() {
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new(self.readout_text(r)).color(p.text_muted).size(12.0))
+                        .on_hover_text("Position and size: x, y · width × height");
+                    ui.label(
+                        egui::RichText::new(ic::ARROWS_OUT_CARDINAL).font(theme::icon_font(14.0)).color(p.text_muted),
+                    );
+                }
             });
         });
     }
