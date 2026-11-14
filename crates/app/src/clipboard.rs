@@ -148,10 +148,18 @@ impl NewpubApp {
             self.paste(None);
             close = true;
         }
+        // The Text flow entries of the one selected text box (UI-30): the right-click handler has already made
+        // the box under the pointer the selection.
+        let only = if self.selection.len() == 1 { self.selection.first().copied() } else { None };
+        let flow_box = only.filter(|id| self.text_flow_state(*id).is_some());
         if !editing {
             if small_button(ui, ic::COPY_SIMPLE, "Duplicate", false, has).clicked() {
                 self.duplicate_selection();
                 close = true;
+            }
+            if let Some(id) = flow_box {
+                ui.separator();
+                close |= self.text_flow_menu(ui, id);
             }
             ui.separator();
             if small_button(ui, ic::STACK_PLUS, "Bring to Front", false, has).clicked() {
@@ -186,9 +194,15 @@ impl NewpubApp {
                 self.act(Command::DeleteObjects { ids });
                 close = true;
             }
-        } else if small_button(ui, ic::SELECTION_ALL, "Select All Text", false, true).clicked() {
-            self.select_all();
-            close = true;
+        } else {
+            if small_button(ui, ic::SELECTION_ALL, "Select All Text", false, true).clicked() {
+                self.select_all();
+                close = true;
+            }
+            if let Some(id) = flow_box {
+                ui.separator();
+                close |= self.text_flow_menu(ui, id);
+            }
         }
         if close {
             ui.close();

@@ -1,6 +1,7 @@
 //! The right-hand inspector: sectioned cards for the formatting of the selected text and the properties of the
 //! selected objects. Labels sit left in muted text, inputs share one right-aligned column.
 
+use crate::flow_ui::{OVERFLOW_TIP, TextFlowAction, text_flow_entries};
 use crate::{NewpubApp, fmt_len, fmt_num, icons, widgets};
 use egui::{Align, Layout, RichText};
 use newpub_engine::core::{
@@ -271,6 +272,7 @@ impl NewpubApp {
                 "Draw a Text Box, then type to fill it.",
                 "Arrow keys nudge the selection; hold Shift for bigger steps.",
                 "Drag a corner handle to resize.",
+                "A red + on a text box means more text than fits: click it to continue the story in another box, or right-click it for other ways.",
             ] {
                 widgets::hint(ui, tip);
             }
@@ -536,7 +538,7 @@ impl NewpubApp {
                 }
             }
         });
-        let fits = ["No autofit", "Shrink on overflow", "Best fit", "Grow frame"];
+        let fits = ["No autofit", "Shrink text on overflow", "Best fit", "Grow frame"];
         let cur = match t.autofit {
             Autofit::None => 0,
             Autofit::ShrinkOnOverflow => 1,
@@ -552,23 +554,19 @@ impl NewpubApp {
         if patch != TextFramePatch::default() {
             self.act_run(format!("{key}:{id}"), Command::SetTextFrame { id, patch });
         }
-        let overflow = self
-            .session
-            .query(&newpub_engine::Query::Overflow { target: id })
-            .ok()
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        if overflow {
+        let Some(st) = self.text_flow_state(id) else { return };
+        if st.overflow {
             let p = widgets::pal(ui);
             ui.horizontal(|ui| {
                 ui.label(RichText::new(icons::WARNING).font(crate::theme::icon_font(14.0)).color(p.danger));
-                ui.label(RichText::new("Text overflow").size(12.0).color(p.danger));
+                // Worded as the Design Checker words it, and unlike the badge's name, so each is found on its own.
+                ui.label(RichText::new("Text does not fit").size(12.0).color(p.danger)).on_hover_text(OVERFLOW_TIP);
             });
         }
         let doc = self.session.doc();
-        let chain = doc.story_of(id).ok().and_then(|s| doc.story(s).ok()).map(|s| s.frames.clone()).unwrap_or_default();
-        let has_next = chain.last().is_some_and(|l| *l != id);
-        let linking = self.view.link_from == Some(id);
+        let entries = text_flow_entries(&st);
+        let entry = |a: TextFlowAction| entries.iter().find(|e| e.action == a).expect("every action has an entry");
+        let mut action = None;
         // Where this box sits in its story, with Previous / Next (also Shift+Tab / Tab on the canvas).
         if let Some((i, chain)) = self.chain_of(id) {
             let mut place = format!("Box {} of {} in this story", i + 1, chain.len());
@@ -576,55 +574,27 @@ impl NewpubApp {
                 place.push_str(&format!(", continues on page {}", pg + 1));
             }
             widgets::hint(ui, &place);
-            let mut go = None;
             toggle_row(ui, |ui| {
-                if widgets::small_button(ui, icons::CARET_LEFT, "Previous Text Box", false, i > 0)
-                    .on_hover_text("Select the box before this one (Shift+Tab)")
-                    .clicked()
-                {
-                    go = Some(false);
-                }
-                if widgets::small_button(ui, icons::CARET_RIGHT, "Next Text Box", false, i + 1 < chain.len())
-                    .on_hover_text("Select the box the story continues in (Tab)")
-                    .clicked()
-                {
-                    go = Some(true);
+                for a in [TextFlowAction::Previous, TextFlowAction::Next] {
+                    if entry(a).button(ui) {
+                        action = Some(a);
+                    }
                 }
             });
-            if let Some(forward) = go {
-                self.go_to_box(id, forward, false);
-            }
         }
         self.continued_toggles(ui, id, t.continued_on, t.continued_from);
+        // Shrink is not here: the Autofit choice above covers it.
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
-            if widgets::small_button(ui, icons::LINK, "Link to Next Box", linking, !has_next)
-                .on_hover_text(
-                    "Then click an empty text box: the story continues there (click again or press Esc to stop)",
-                )
-                .on_disabled_hover_text("This box already continues in another box; break that link first")
-                .clicked()
-            {
-                if linking {
-                    self.cancel_link();
-                } else {
-                    self.start_link(id);
+            for a in [TextFlowAction::Link, TextFlowAction::BreakLink, TextFlowAction::Autoflow] {
+                if entry(a).button(ui) {
+                    action = Some(a);
                 }
             }
-            if widgets::small_button(ui, icons::LINK_BREAK, "Break Link", false, has_next)
-                .on_hover_text("The following boxes no longer continue this story")
-                .clicked()
-            {
-                self.act(Command::UnlinkFrame { frame: id });
-            }
-            if widgets::small_button(ui, icons::FILES, "Flow onto New Pages", false, overflow)
-                .on_hover_text("Add pages with linked boxes until all the text fits")
-                .on_disabled_hover_text("All the text fits")
-                .clicked()
-            {
-                self.act(newpub_engine::SessionAction::Autoflow { frame: id });
-            }
         });
+        if let Some(action) = action {
+            self.run_text_flow(id, action);
+        }
     }
 
     /// The Text box card's "Include 'Continued on page…'" and "Include 'Continued from page…'" checkboxes

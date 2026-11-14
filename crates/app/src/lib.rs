@@ -767,10 +767,9 @@ impl NewpubApp {
         self.freeform_overlay(ui, area);
     }
 
-    /// Margin guides, frame boundaries, empty-frame placeholders and overflow badges of the current page.
+    /// Margin guides, frame boundaries and empty-frame placeholders of the current page (the overflow badges are
+    /// widgets in `flow_ui::badge_overlay`).
     fn draw_guides(&mut self, painter: &egui::Painter) {
-        let p = theme::palette(painter.ctx());
-        let layout = self.session.layout();
         let doc = self.session.doc();
         let (t, b, l, r) = doc.page_margins(self.page);
         let (w, h) = (doc.setup.width.0, doc.setup.height.0);
@@ -788,7 +787,6 @@ impl NewpubApp {
                 self.page_to_screen(o.rect.x, o.rect.y),
                 self.page_to_screen(o.rect.right(), o.rect.bottom()),
             );
-            let fl = layout.frames.get(id);
             if self.view.boundaries {
                 dashed_rect(painter, rr, Stroke::new(1.0, Color32::from_gray(175)), 3.0);
             }
@@ -801,12 +799,6 @@ impl NewpubApp {
                     egui::FontId::proportional(12.0 * self.zoom.clamp(0.6, 1.6)),
                     Color32::from_gray(185),
                 );
-            }
-            if fl.is_some_and(|f| f.overflow) {
-                // Red "+" badge on the frame's bottom edge: more text than fits.
-                let c = Pos2::new(rr.right() - 10.0, rr.bottom());
-                painter.rect_filled(ERect::from_center_size(c, Vec2::splat(14.0)), 3.0, p.danger);
-                painter.text(c, egui::Align2::CENTER_CENTER, "+", egui::FontId::proportional(12.0), Color32::WHITE);
             }
         }
     }
@@ -1094,14 +1086,6 @@ impl NewpubApp {
             && let Some(p) = resp.interact_pointer_pos()
         {
             let (x, y) = self.screen_to_page(p);
-            if self.tool == Tool::Select
-                && let Some(f) = self.overflow_badge_at(p)
-            {
-                // The red "+" badge: continue the text in another box.
-                self.selection = vec![f];
-                self.start_link(f);
-                return;
-            }
             if self.tool == Tool::Select {
                 let hit = self.hit(x, y);
                 // A click in an already selected text box, shape with text or table places the caret there.
@@ -1171,20 +1155,6 @@ impl NewpubApp {
                 self.status = "Linking cancelled: click an empty text box".into();
             }
         }
-    }
-
-    /// The overflowing text frame whose "+" badge is under `p`.
-    fn overflow_badge_at(&mut self, p: Pos2) -> Option<Id> {
-        let layout = self.session.layout();
-        let doc = self.session.doc();
-        let page = doc.pages.get(self.page)?;
-        page.objects.iter().copied().find(|id| {
-            layout.frames.get(id).is_some_and(|f| f.overflow)
-                && doc.objects.get(id).is_some_and(|o| {
-                    let c = self.page_to_screen(o.rect.right(), o.rect.bottom()) - Vec2::new(10.0, 0.0);
-                    ERect::from_center_size(c, Vec2::splat(16.0)).contains(p)
-                })
-        })
     }
 
     /// The end of a marquee drag: selects every object on the current page that lies entirely inside the

@@ -1,6 +1,6 @@
 //! UI journeys: drive the real egui app through its AccessKit tree with egui_kittest.
 //!
-//! UI steps: `click: {label, button}`, `fill: {label, text}`, `type: {text}`, `key: {key, command, shift}`,
+//! UI steps: `click: {label, button, last}`, `fill: {label, text}`, `type: {text}`, `key: {key, command, shift}`,
 //! `drag: {from: [x, y], to: [x, y], shift, alt}` (or `from_ruler`/`to_ruler: top | left` for one end) and `click_at: [x, y]` (page points on the canvas),
 //! `expect_ui: {label, exists}`, `focus: {label}` (keyboard focus), `scroll: {dx, dy}` (mouse wheel over
 //! the canvas, screen points), `hover: {label}`, `close_window: {}` (the window's close button), `drop_file: {path, at}` (a file
@@ -51,18 +51,28 @@ fn pt(v: &Value) -> Result<(f64, f64)> {
 }
 
 fn find<'a>(h: &'a Harness<'_, NewpubApp>, label: &'a str) -> Result<egui_kittest::Node<'a>> {
-    // Prefer interactive nodes when several share a label (e.g. a text field and its caption).
+    find_nth(h, label, false)
+}
+
+/// The widget labelled `label`. When several share the name, a control (a text field, a combo box, a button)
+/// is preferred over a caption, since the control is what a person uses; `last` picks the last match instead,
+/// which is the one in a popup or menu (popups are registered after the panels) when a panel button has the
+/// same name.
+fn find_nth<'a>(h: &'a Harness<'_, NewpubApp>, label: &'a str, last: bool) -> Result<egui_kittest::Node<'a>> {
     let all: Vec<_> = h.query_all_by_label(label).collect();
     if all.is_empty() {
         bail!("no UI element labelled {label:?}");
     }
-    // A row's caption and its control share a name; the control is what a person uses.
     use egui::accesskit::Role;
-    let pick = all
-        .iter()
-        .position(|n| n.accesskit_node().role() == Role::TextInput)
-        .or_else(|| all.iter().position(|n| n.accesskit_node().role() == Role::ComboBox))
-        .unwrap_or(0);
+    let pick = if last {
+        all.len() - 1
+    } else {
+        all.iter()
+            .position(|n| n.accesskit_node().role() == Role::TextInput)
+            .or_else(|| all.iter().position(|n| n.accesskit_node().role() == Role::ComboBox))
+            .or_else(|| all.iter().position(|n| n.accesskit_node().role() == Role::Button))
+            .unwrap_or(0)
+    };
     Ok(all.into_iter().nth(pick).expect("index in range"))
 }
 
@@ -98,10 +108,12 @@ fn ui_step(h: &mut Harness<'_, NewpubApp>, ctx: &mut Ctx, step: &Value) -> Resul
     let args = substitute(raw, ctx)?;
     match name.as_str() {
         "click" => {
-            // click: {label} or {label, button: secondary} (a right-click, e.g. for a context menu).
+            // click: {label} or {label, button: secondary} (a right-click, e.g. for a context menu);
+            // `last: true` clicks the last widget with that name (a menu entry a panel button shares it with).
             let label = args.get("label").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("click needs label"))?;
+            let last = args.get("last").and_then(|v| v.as_bool()).unwrap_or(false);
             if args.get("button").and_then(|v| v.as_str()) == Some("secondary") {
-                let at = find(h, label)?.rect().center();
+                let at = find_nth(h, label, last)?.rect().center();
                 h.hover_at(at);
                 h.run_steps(1);
                 for pressed in [true, false] {
@@ -113,6 +125,9 @@ fn ui_step(h: &mut Harness<'_, NewpubApp>, ctx: &mut Ctx, step: &Value) -> Resul
                     });
                     h.run_steps(1);
                 }
+            } else if last {
+                // A popup is always on screen; scrolling for it would close it.
+                find_nth(h, label, true)?.click();
             } else {
                 ensure_visible(h, label)?;
                 find(h, label)?.click();

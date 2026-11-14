@@ -1,11 +1,21 @@
 //! Text-flow feedback on the canvas (UI-26): the chain of boxes a selected story runs through, Previous and
 //! Next box buttons, and the "Link to Next Box" mode with its hint and the boxes the story may continue in.
-//! Everything here is view state; the only document change is the `LinkFrames` command in `finish_link`.
+//! Also (UI-30) the overflow badge as a widget with a tooltip and a right-click menu, and the "Text flow"
+//! actions shared by that menu, the canvas menu and the Format panel's Text box card. Everything here is view
+//! state; the document changes only through the existing commands and actions (`LinkFrames`, `UnlinkFrame`,
+//! `SetTextFrame`, `Autoflow`), one undo step each.
 
 use egui::{Align2, Color32, Pos2, Rect as ERect, Sense, Stroke, Vec2};
-use newpub_engine::core::{Id, ObjectKind, Rect};
+use newpub_engine::SessionAction;
+use newpub_engine::core::{Autofit, Command, Document, Id, Object, ObjectKind, Rect, TextFramePatch};
 
-use crate::{NewpubApp, Tool, dashed_rect, icons, theme};
+use crate::{NewpubApp, Tool, dashed_rect, icons, theme, widgets};
+
+/// Side of the red "+" overflow badge on the bottom edge of a text box.
+const BADGE: f32 = 14.0;
+/// Accessible name of the overflow badge; the tooltip says what to do about it.
+const OVERFLOW_LABEL: &str = "Text overflow";
+pub(crate) const OVERFLOW_TIP: &str = "Text overflow: more text than fits in this box. Click to continue the story in another box, or right-click for other ways to fit it.";
 
 /// Radius of a Previous / Next chip on the selected box.
 const CHIP: f32 = 9.0;
@@ -94,8 +104,73 @@ impl NewpubApp {
     pub(crate) fn flow_overlay(&mut self, ui: &mut egui::Ui, canvas: ERect) {
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(canvas));
         child.set_clip_rect(canvas);
+        self.badge_overlay(&mut child, canvas);
         self.link_overlay(&mut child, canvas);
         self.chain_overlay(&mut child, canvas);
+    }
+
+    /// The red "+" badge on every text box of the page whose story has more text than fits (UI-30). With the
+    /// Select tool it is a button: its tooltip says what the badge means, a click starts "Link to Next Box"
+    /// (Publisher's pitcher) and a right-click opens the Text flow menu. Only clicks reach it; a drag that
+    /// starts on it still moves or resizes the box through the canvas. In link mode the badge is drawn only, so
+    /// a click on it reaches `finish_link` as any click on the box does.
+    fn badge_overlay(&mut self, ui: &mut egui::Ui, canvas: ERect) {
+        let p = theme::palette(ui.ctx());
+        let painter = ui.painter().with_clip_rect(canvas);
+        let badges: Vec<(Id, ERect)> = {
+            let layout = self.session.layout();
+            let doc = self.session.doc();
+            let Some(page) = doc.pages.get(self.page) else { return };
+            page.objects
+                .iter()
+                .copied()
+                .filter(|id| layout.frames.get(id).is_some_and(|f| f.overflow))
+                .filter_map(|id| {
+                    let o = doc.objects.get(&id)?;
+                    (matches!(o.kind, ObjectKind::Text(_)) && shown(doc, o))
+                        .then(|| (id, badge_rect(self.screen_rect(o.rect))))
+                })
+                .collect()
+        };
+        // The page is always white and the dark theme's red is a light one, so the "+" is dark on it there
+        // (about 5.5:1) and white on the light theme's deeper red (about 4.5:1).
+        let ink = if p.dark { p.surface } else { Color32::WHITE };
+        // A hover ring that shows on the white page in both themes.
+        let ring = Color32::from_black_alpha(90);
+        let interactive = self.tool == Tool::Select && self.view.link_from.is_none();
+        for (id, r) in badges {
+            if !canvas.intersects(r) {
+                continue;
+            }
+            let mut hovered = false;
+            if interactive {
+                let resp = ui
+                    .interact(r, ui.id().with(("overflow-badge", id.0)), Sense::click())
+                    .on_hover_text(OVERFLOW_TIP)
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, OVERFLOW_LABEL));
+                hovered = resp.hovered();
+                if resp.clicked() {
+                    self.selection = vec![id];
+                    self.start_link(id);
+                }
+                if resp.secondary_clicked() {
+                    // The menu acts on this one box, so a multiple selection collapses to it.
+                    self.end_text_edit();
+                    self.selection = vec![id];
+                }
+                resp.context_menu(|ui| {
+                    if self.text_flow_menu(ui, id) {
+                        ui.close();
+                    }
+                });
+            }
+            painter.rect_filled(r, 3.0, p.danger);
+            if hovered {
+                painter.rect_stroke(r, 3.0, Stroke::new(1.5, ring), egui::StrokeKind::Outside);
+            }
+            painter.text(r.center(), Align2::CENTER_CENTER, "+", egui::FontId::proportional(12.0), ink);
+        }
     }
 
     /// While linking: the source box, every box the story may continue in, and a banner with a Cancel button.
@@ -254,6 +329,197 @@ impl NewpubApp {
             Some((i, frames)) => serde_json::json!({ "index": i, "count": frames.len(), "frames": frames }),
             None => serde_json::Value::Null,
         };
+    }
+}
+
+/// The overflow badge of a box: a 14 px square astride the bottom edge, inside the bottom-right corner and clear
+/// of the Next chip (whose lowest point is 9 px above the edge).
+fn badge_rect(rr: ERect) -> ERect {
+    ERect::from_center_size(Pos2::new(rr.right() - 10.0, rr.bottom()), Vec2::splat(BADGE))
+}
+
+/// True when the object is drawn: not hidden, and not on a hidden layer.
+fn shown(doc: &Document, o: &Object) -> bool {
+    !o.hidden && o.layer.and_then(|l| doc.layers.iter().find(|x| x.id == l)).is_none_or(|l| l.visible)
+}
+
+/// What the Text flow entries may do for one text box, read afresh each frame from the document and the layout.
+pub(crate) struct TextFlowState {
+    /// The box's story has more text than its boxes show.
+    pub overflow: bool,
+    /// The story goes on in another box after this one.
+    pub has_next: bool,
+    /// Position in a story of two or more boxes: (index, count).
+    pub chain: Option<(usize, usize)>,
+    /// Autofit is off, so "Shrink Text on Overflow" would change something.
+    pub autofit_none: bool,
+    /// "Link to Next Box" is waiting for a click, started from this box.
+    pub linking: bool,
+}
+
+/// One entry of the Text flow menu. Each runs one existing command or action: one undo step.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextFlowAction {
+    /// Add pages with linked boxes until all the text fits (`SessionAction::Autoflow`).
+    Autoflow,
+    /// Autofit: shrink the text until it fits (`SetTextFrame { autofit: ShrinkOnOverflow }`).
+    Shrink,
+    /// Start (or cancel) "Link to Next Box".
+    Link,
+    /// `UnlinkFrame`: the following boxes no longer continue the story.
+    BreakLink,
+    Previous,
+    Next,
+}
+
+/// A Text flow entry as a menu or the Format panel draws it: its button and both tooltips.
+pub(crate) struct TextFlowEntry {
+    pub action: TextFlowAction,
+    pub icon: &'static str,
+    pub label: &'static str,
+    pub selected: bool,
+    pub enabled: bool,
+    /// Tooltip when enabled.
+    pub tip: &'static str,
+    /// Tooltip when greyed out: why the entry cannot apply.
+    pub why_not: &'static str,
+}
+
+impl TextFlowEntry {
+    /// Draws the entry as a small button; true when clicked.
+    pub(crate) fn button(&self, ui: &mut egui::Ui) -> bool {
+        widgets::small_button(ui, self.icon, self.label, self.selected, self.enabled)
+            .on_hover_text(self.tip)
+            .on_disabled_hover_text(self.why_not)
+            .clicked()
+    }
+}
+
+/// The Text flow entries for a box in state `st`: the ways to deal with overflow first (Flow onto New Pages,
+/// Shrink Text on Overflow), then linking and the chain. Every entry exists, greyed out with the reason when it
+/// cannot apply, so a menu teaches what there is. This one table drives the badge menu, the canvas menu and the
+/// Format panel's Text box card.
+pub(crate) fn text_flow_entries(st: &TextFlowState) -> [TextFlowEntry; 6] {
+    [
+        TextFlowEntry {
+            action: TextFlowAction::Autoflow,
+            icon: icons::FILES,
+            label: "Flow onto New Pages",
+            selected: false,
+            enabled: st.overflow,
+            tip: "Add pages with linked boxes until all the text fits",
+            why_not: "All the text fits",
+        },
+        TextFlowEntry {
+            action: TextFlowAction::Shrink,
+            icon: icons::ARROWS_IN_SIMPLE,
+            label: "Shrink Text on Overflow",
+            selected: false,
+            enabled: st.overflow && st.autofit_none,
+            tip: "Make the text smaller until it fits this box (the font size you set is kept)",
+            why_not: if st.autofit_none {
+                "All the text fits"
+            } else {
+                "Autofit is already on; change it in the Format panel"
+            },
+        },
+        TextFlowEntry {
+            action: TextFlowAction::Link,
+            icon: icons::LINK,
+            label: "Link to Next Box",
+            selected: st.linking,
+            enabled: !st.has_next,
+            tip: "Then click an empty text box: the story continues there (click again or press Esc to stop)",
+            why_not: "This box already continues in another box; break that link first",
+        },
+        TextFlowEntry {
+            action: TextFlowAction::BreakLink,
+            icon: icons::LINK_BREAK,
+            label: "Break Link",
+            selected: false,
+            enabled: st.has_next,
+            tip: "The following boxes no longer continue this story",
+            why_not: "This box does not continue in another box",
+        },
+        TextFlowEntry {
+            action: TextFlowAction::Previous,
+            icon: icons::CARET_LEFT,
+            label: "Previous Text Box",
+            selected: false,
+            enabled: st.chain.is_some_and(|(i, _)| i > 0),
+            tip: "Select the box before this one (Shift+Tab)",
+            why_not: if st.chain.is_some() { "This is the first box of the story" } else { "This story has one box" },
+        },
+        TextFlowEntry {
+            action: TextFlowAction::Next,
+            icon: icons::CARET_RIGHT,
+            label: "Next Text Box",
+            selected: false,
+            enabled: st.chain.is_some_and(|(i, n)| i + 1 < n),
+            tip: "Select the box the story continues in (Tab)",
+            why_not: if st.chain.is_some() { "This is the last box of the story" } else { "This story has one box" },
+        },
+    ]
+}
+
+impl NewpubApp {
+    /// The Text flow state of `id`, or None unless it is a text box.
+    pub(crate) fn text_flow_state(&mut self, id: Id) -> Option<TextFlowState> {
+        let layout = self.session.layout();
+        let doc = self.session.doc();
+        let o = doc.objects.get(&id)?;
+        let ObjectKind::Text(t) = &o.kind else { return None };
+        let sid = doc.story_of(id).ok();
+        let frames = sid.and_then(|s| doc.story(s).ok()).map(|s| s.frames.clone()).unwrap_or_default();
+        // The story's overflow (what the Format panel and the `overflow` query report), not this box's alone.
+        let overflow = sid.is_some_and(|s| layout.stories.get(&s).is_some_and(|l| l.overflow_at.is_some()));
+        let chain =
+            (frames.len() >= 2).then(|| frames.iter().position(|f| *f == id).map(|i| (i, frames.len()))).flatten();
+        Some(TextFlowState {
+            overflow,
+            has_next: frames.last().is_some_and(|l| *l != id),
+            chain,
+            autofit_none: t.autofit == Autofit::None,
+            linking: self.view.link_from == Some(id),
+        })
+    }
+
+    /// Runs one Text flow action on `id`. Each is one undo step (or none: linking and navigation change the
+    /// view only until the link is made).
+    pub(crate) fn run_text_flow(&mut self, id: Id, action: TextFlowAction) {
+        match action {
+            TextFlowAction::Autoflow => {
+                self.act(SessionAction::Autoflow { frame: id });
+            }
+            TextFlowAction::Shrink => {
+                let patch = TextFramePatch { autofit: Some(Autofit::ShrinkOnOverflow), ..Default::default() };
+                self.act(Command::SetTextFrame { id, patch });
+            }
+            TextFlowAction::Link => {
+                if self.view.link_from == Some(id) {
+                    self.cancel_link();
+                } else {
+                    self.start_link(id);
+                }
+            }
+            TextFlowAction::BreakLink => {
+                self.act(Command::UnlinkFrame { frame: id });
+            }
+            TextFlowAction::Previous => self.go_to_box(id, false, false),
+            TextFlowAction::Next => self.go_to_box(id, true, false),
+        }
+    }
+
+    /// The "Text flow" section of a right-click menu for text box `id`. Returns true when an entry was chosen
+    /// and the menu should close.
+    pub(crate) fn text_flow_menu(&mut self, ui: &mut egui::Ui, id: Id) -> bool {
+        let Some(st) = self.text_flow_state(id) else { return false };
+        widgets::hint(ui, "Text flow");
+        let chosen = text_flow_entries(&st).iter().find(|e| e.button(ui)).map(|e| e.action);
+        if let Some(action) = chosen {
+            self.run_text_flow(id, action);
+        }
+        chosen.is_some()
     }
 }
 
