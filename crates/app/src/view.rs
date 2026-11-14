@@ -361,8 +361,11 @@ impl NewpubApp {
             painter.rect_stroke(cv.shrink(1.0), 0.0, Stroke::new(2.0, c), egui::StrokeKind::Inside);
         }
         self.handle_canvas_input(&resp);
-        // Right-click selects what is under the pointer, then opens the context menu.
-        if resp.secondary_clicked()
+        // Right-click selects what is under the pointer, then opens the context menu. Not in "Link to Next
+        // Box" mode, which is modal: the menu has entries that change the document.
+        let linking = self.view.link_from.is_some();
+        if !linking
+            && resp.secondary_clicked()
             && let Some(p) = resp.interact_pointer_pos()
         {
             let (x, y) = self.screen_to_page(p);
@@ -378,7 +381,9 @@ impl NewpubApp {
                 }
             }
         }
-        resp.context_menu(|ui| self.canvas_menu(ui));
+        if !linking {
+            resp.context_menu(|ui| self.canvas_menu(ui));
+        }
         self.canvas_keys(&ctx, &resp);
         // The rectangle of a drawing tool, or the marquee of the Select tool.
         if let (Some(a), Some(b)) = (self.drag_start, self.drag_now)

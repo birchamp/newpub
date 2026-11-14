@@ -1,0 +1,290 @@
+id: UI-TX-005
+title: Overflow badge — the red "+" on an overflowing text box is a button with a tooltip that says what it means, a click starts Link to Next Box, a right-click opens the Text flow menu (Shrink Text on Overflow, Flow onto New Pages, Link to Next Box, Break Link, Previous / Next Text Box), the same section sits in the canvas menu of a text box (also while editing), a drag on the badge still moves the box, greyed-out entries are no-ops, no Text flow section for a shape or the empty page, undo and redo, save / open through the dialogs
+covers: [UI-30]
+ui: true
+steps:
+  # --- setup: a text box A that overflows (fixtures/long-text.txt). Before the import there is no badge; after
+  # it the engine reports overflow and the badge is a widget named "Text overflow" (the Format panel's red line
+  # says "Text does not fit", so the name is the badge's alone).
+  - click: {label: "Text Box"}
+  - drag: {from: [1in, 1in], to: [3.5in, 3in]}
+  - expect: {query: {q: page_objects, page: 0}, path: /0, gt: 0, as: a}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [72, 0.5]}
+  - expect: {query: {q: overflow, target: $a}, equals: false}
+  - expect_ui: {label: "Text overflow", exists: false}
+  - click: {label: "Insert"}
+  - click: {label: "Text File"}
+  - fill: {label: "Text file", text: "fixtures/long-text.txt"}
+  - click: {label: "Insert Text"}
+  - expect: {query: {q: story_text, target: $a}, starts_with: "New mayor library hall"}
+  - expect: {query: {q: overflow, target: $a}, equals: true}
+  - expect: {query: {q: object, id: $a}, path: /kind/autofit, equals: none}
+  - expect: {query: {q: char_attrs, target: $a, at: 0}, path: /size, gt: 0, as: size}
+  - expect: {query: {q: history}, path: /undo, gt: 0, as: undo0}
+  - click: {label: "Home"}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  # the badge geometry below (a 14 px square 10 px inside the box's bottom-right corner) assumes the fitted zoom
+  - expect: {query: {q: view}, path: /zoom, gt: 0.6}
+  - expect: {query: {q: view}, path: /zoom, lt: 1.0}
+  - click_at: [4in, 9in]
+  - expect: {query: {q: view}, path: /selection, equals: []}
+  - expect_ui: {label: "Text overflow"}
+
+  # --- the tooltip says what the badge means and what to do about it (egui shows it after 0.5 s of rest)
+  - hover: {label: "Text overflow"}
+  - run: {}
+  - run: {}
+  - run: {}
+  - run: {}
+  - run: {}
+  - run: {}
+  - run: {}
+  - run: {}
+  - expect_ui: {label: "Text overflow: more text than fits in this box. Click to continue the story in another box, or right-click for other ways to fit it."}
+
+  # --- a click on the badge selects the box and starts Link to Next Box; Escape leaves the mode, the selection stays
+  - click: {label: "Text overflow"}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect: {query: {q: view}, path: /link_mode, equals: $a}
+  - expect: {query: {q: view}, path: /status, contains: "Click an empty text box"}
+  - expect_ui: {label: "Linking text boxes"}
+  - expect_ui: {label: "Cancel linking"}
+  - key: {key: "Escape"}
+  - expect: {query: {q: view}, path: /link_mode, equals: null}
+  - expect: {query: {q: view}, path: /status, contains: "Linking cancelled"}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect_ui: {label: "Linking text boxes", exists: false}
+  - expect: {query: {q: history}, path: /undo, equals: $undo0}
+
+  # --- the badge takes clicks only: a drag that starts on it moves the box as a drag anywhere on the box does.
+  # The badge is centred 10 px left of the right edge on the bottom edge; at the fitted zoom (about 0.71) the
+  # point 14.4 pt left of the right edge and 1.4 pt above the bottom edge is inside the badge and clear of the
+  # corner resize handle (8 px). One inch down: y goes from 72 to 144 pt, one undo step, no link mode.
+  - drag: {from: [3.3in, 2.98in], to: [3.3in, 3.98in]}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [144, 1.5]}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [72, 1.5]}
+  - expect: {query: {q: object, id: $a}, path: /rect/h, approx: [144, 0.5]}
+  - expect: {query: {q: view}, path: /link_mode, equals: null}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect: {query: {q: overflow, target: $a}, equals: true}
+  - expect: {query: {q: history}, path: /undo, equals: $undo0+1}
+  - click: {label: "Undo"}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [72, 0.5]}
+  - expect: {query: {q: history}, path: /undo, equals: $undo0}
+
+  # --- right-click on the badge: the Text flow menu. Shrink Text on Overflow turns autofit on: the text fits,
+  # the badge goes, the font size set on the text is kept. One undo step; redo brings the shrink back.
+  - click: {label: "Text overflow", button: secondary}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect_ui: {label: "Text flow"}
+  - expect_ui: {label: "Shrink Text on Overflow"}
+  - click: {label: "Shrink Text on Overflow"}
+  - expect: {query: {q: object, id: $a}, path: /kind/autofit, equals: shrink_on_overflow}
+  - expect: {query: {q: object, id: $a}, path: /kind/fit_scale, lt: 1.0}
+  - expect: {query: {q: overflow, target: $a}, equals: false}
+  - expect: {query: {q: char_attrs, target: $a, at: 0}, path: /size, equals: $size}
+  - expect: {query: {q: story_text, target: $a}, starts_with: "New mayor library hall"}
+  - expect: {query: {q: history}, path: /undo, equals: $undo0+1}
+  - expect_ui: {label: "Text overflow", exists: false}
+  - expect_ui: {label: "Text flow", exists: false}
+  - click: {label: "Undo"}
+  - expect: {query: {q: object, id: $a}, path: /kind/autofit, equals: none}
+  - expect: {query: {q: object, id: $a}, path: /kind/fit_scale, equals: 1.0}
+  - expect: {query: {q: overflow, target: $a}, equals: true}
+  - click_at: [4in, 9in]
+  - expect: {query: {q: view}, path: /selection, equals: []}
+  - expect_ui: {label: "Text overflow"}
+  - click: {label: "Redo"}
+  - expect: {query: {q: object, id: $a}, path: /kind/autofit, equals: shrink_on_overflow}
+  - expect: {query: {q: overflow, target: $a}, equals: false}
+  - expect_ui: {label: "Text overflow", exists: false}
+  - click: {label: "Undo"}
+  - expect: {query: {q: object, id: $a}, path: /kind/autofit, equals: none}
+  - expect: {query: {q: overflow, target: $a}, equals: true}
+  - expect_ui: {label: "Text overflow"}
+
+  # --- Flow onto New Pages from the badge menu: pages with linked boxes are added until all the text fits;
+  # the badge goes; the view stays on page 1 with A selected. Undo takes the pages away and the overflow is back.
+  - click: {label: "Text overflow", button: secondary}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect_ui: {label: "Text flow"}
+  - click: {label: "Flow onto New Pages", last: true}
+  - expect: {query: {q: overflow, target: $a}, equals: false}
+  - expect: {query: {q: page_count}, gt: 1, as: pages}
+  - expect: {query: {q: story_frames, target: $a}, len: {gt: 1}}
+  - expect: {query: {q: story_frames, target: $a}, len: {equals: $pages}}
+  - expect: {query: {q: story_frames, target: $a}, path: /0, equals: $a}
+  - expect: {query: {q: view}, path: /page, equals: 0}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect: {query: {q: view}, path: /story_nav/index, equals: 0}
+  - expect: {query: {q: history}, path: /undo, equals: $undo0+1}
+  - expect_ui: {label: "Text overflow", exists: false}
+  - click: {label: "Undo"}
+  - expect: {query: {q: page_count}, equals: 1}
+  - expect: {query: {q: overflow, target: $a}, equals: true}
+  - expect: {query: {q: story_frames, target: $a}, equals: [$a]}
+  - expect: {query: {q: history}, path: /undo, equals: $undo0}
+
+  # --- an empty box B: its canvas menu has the Text flow section too, with the entries greyed out (nothing to
+  # flow or shrink, no link to break, a story of one box). Clicking them changes nothing: no undo step.
+  - click: {label: "Text Box"}
+  - drag: {from: [4in, 1in], to: [7in, 3in]}
+  - expect: {query: {q: page_objects, page: 0}, path: /1, gt: 0, as: b}
+  - key: {key: "Escape"}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - expect: {query: {q: frame_text, frame: $b}, equals: ""}
+  - expect: {query: {q: history}, path: /undo, gt: 0, as: undo1}
+  - click_at: {at: [5.5in, 2in], button: secondary}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - expect_ui: {label: "Text flow"}
+  - expect_ui: {label: "Shrink Text on Overflow"}
+  - click: {label: "Flow onto New Pages", last: true}
+  - expect: {query: {q: page_count}, equals: 1}
+  - expect: {query: {q: story_frames, target: $b}, equals: [$b]}
+  - click_at: {at: [5.5in, 2in], button: secondary}
+  - expect_ui: {label: "Text flow"}
+  - click: {label: "Break Link", last: true}
+  - expect: {query: {q: story_frames, target: $b}, equals: [$b]}
+  - expect: {query: {q: story_frames, target: $a}, equals: [$a]}
+  - click_at: {at: [5.5in, 2in], button: secondary}
+  - expect_ui: {label: "Text flow"}
+  - click: {label: "Shrink Text on Overflow"}
+  - expect: {query: {q: object, id: $b}, path: /kind/autofit, equals: none}
+  - click_at: {at: [5.5in, 2in], button: secondary}
+  - expect_ui: {label: "Text flow"}
+  - click: {label: "Previous Text Box", last: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - click_at: {at: [5.5in, 2in], button: secondary}
+  - expect_ui: {label: "Text flow"}
+  - click: {label: "Next Text Box", last: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - expect: {query: {q: view}, path: /story_nav, equals: null}
+  - expect: {query: {q: view}, path: /link_mode, equals: null}
+  - expect: {query: {q: history}, path: /undo, equals: $undo1}
+  - key: {key: "Escape"}
+  - expect_ui: {label: "Text flow", exists: false}
+  - expect: {query: {q: view}, path: /selection, equals: []}
+
+  # --- the canvas menu of A: Link to Next Box starts the mode, a click on B links it; Previous / Next Text Box
+  # from the menus of B and A navigate the chain; Link to Next Box is greyed out on a box that already
+  # continues; Break Link empties B; undo and redo of the break
+  - click_at: {at: [2in, 2in], button: secondary}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect_ui: {label: "Text flow"}
+  - expect_ui: {label: "Cut"}
+  - click: {label: "Link to Next Box", last: true}
+  - expect: {query: {q: view}, path: /link_mode, equals: $a}
+  - expect: {query: {q: view}, path: /link_targets, equals: [$b]}
+  - expect: {query: {q: view}, path: /status, contains: "Click an empty text box"}
+  - expect_ui: {label: "Linking text boxes"}
+  - expect_ui: {label: "Text flow", exists: false}
+  - click_at: [5.5in, 2in]
+  - expect: {query: {q: view}, path: /link_mode, equals: null}
+  - expect: {query: {q: view}, path: /status, equals: "Text boxes linked"}
+  - expect: {query: {q: story_frames, target: $a}, equals: [$a, $b]}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - expect: {query: {q: frame_text, frame: $b}, len: {gt: 100}}
+  - expect: {query: {q: overflow, target: $a}, equals: true}
+  - expect: {query: {q: history}, path: /undo, equals: $undo1+1}
+  # Previous Text Box from B's menu
+  - click_at: {at: [5.5in, 2in], button: secondary}
+  - expect_ui: {label: "Text flow"}
+  - click: {label: "Previous Text Box", last: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect: {query: {q: view}, path: /story_nav/index, equals: 0}
+  - expect: {query: {q: view}, path: /story_nav/count, equals: 2}
+  - expect: {query: {q: view}, path: /status, contains: "box 1 of 2"}
+  # Next Text Box from A's menu
+  - click_at: {at: [2in, 2in], button: secondary}
+  - expect_ui: {label: "Text flow"}
+  - click: {label: "Next Text Box", last: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - expect: {query: {q: view}, path: /story_nav/index, equals: 1}
+  - expect: {query: {q: view}, path: /status, contains: "box 2 of 2"}
+  # Link to Next Box is greyed out on A, which already continues in B
+  - click_at: {at: [2in, 2in], button: secondary}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect_ui: {label: "Text flow"}
+  - click: {label: "Link to Next Box", last: true}
+  - expect: {query: {q: view}, path: /link_mode, equals: null}
+  - expect_ui: {label: "Linking text boxes", exists: false}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  # Break Link from A's menu
+  - click_at: {at: [2in, 2in], button: secondary}
+  - expect_ui: {label: "Text flow"}
+  - click: {label: "Break Link", last: true}
+  - expect: {query: {q: story_frames, target: $a}, equals: [$a]}
+  - expect: {query: {q: frame_text, frame: $b}, equals: ""}
+  - expect: {query: {q: overflow, target: $a}, equals: true}
+  - expect: {query: {q: view}, path: /story_nav, equals: null}
+  - expect: {query: {q: history}, path: /undo, equals: $undo1+2}
+  - click: {label: "Undo"}
+  - expect: {query: {q: story_frames, target: $a}, equals: [$a, $b]}
+  - expect: {query: {q: frame_text, frame: $b}, len: {gt: 100}}
+  - click: {label: "Redo"}
+  - expect: {query: {q: story_frames, target: $a}, equals: [$a]}
+  - expect: {query: {q: frame_text, frame: $b}, equals: ""}
+  - click: {label: "Undo"}
+  - expect: {query: {q: story_frames, target: $a}, equals: [$a, $b]}
+  - expect: {query: {q: history}, path: /undo, equals: $undo1+1}
+
+  # --- while editing the text of A, the canvas menu keeps the Text flow section next to Select All Text, and
+  # Next Text Box ends the editing and selects B
+  - click_at: {at: [2in, 2in], double: true}
+  - expect: {query: {q: view}, path: /editing, equals: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - click_at: {at: [2in, 2in], button: secondary}
+  - expect_ui: {label: "Select All Text"}
+  - expect_ui: {label: "Text flow"}
+  - expect_ui: {label: "Duplicate", exists: false}
+  - click: {label: "Next Text Box", last: true}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - expect: {query: {q: view}, path: /editing, equals: false}
+  - expect: {query: {q: view}, path: /story_nav/index, equals: 1}
+
+  # --- no Text flow section for a shape or for the empty page
+  - click: {label: "Rectangle"}
+  - drag: {from: [1in, 7in], to: [2in, 8in]}
+  - expect: {query: {q: page_objects, page: 0}, path: /2, gt: 0, as: r}
+  - expect: {query: {q: view}, path: /selection, equals: [$r]}
+  - click_at: {at: [1.5in, 7.5in], button: secondary}
+  - expect: {query: {q: view}, path: /selection, equals: [$r]}
+  - expect_ui: {label: "Cut"}
+  - expect_ui: {label: "Text flow", exists: false}
+  - expect_ui: {label: "Shrink Text on Overflow", exists: false}
+  # Escape closes the shape's menu (a right-click while a menu is open only closes it)
+  - key: {key: "Escape"}
+  - expect_ui: {label: "Cut", exists: false}
+  - click_at: {at: [4in, 9in], button: secondary}
+  - expect: {query: {q: view}, path: /selection, equals: []}
+  - expect_ui: {label: "Paste"}
+  - expect_ui: {label: "Text flow", exists: false}
+  - key: {key: "Escape"}
+  - expect_ui: {label: "Paste", exists: false}
+
+  # --- round trip: the engine's save / open equality, then Save -> New -> Open through the dialogs keep the
+  # chain, the autofit setting and the overflow; with nothing selected the one badge (on B, the last box of the
+  # overflowing story) is back
+  - expect_roundtrip: {}
+  - click: {label: "Save"}
+  - fill: {label: "File name", text: "overflow-badge.npub"}
+  - click: {label: "Save File"}
+  - expect: {query: {q: session}, path: /dirty, equals: false}
+  - click: {label: "New"}
+  - click: {label: "Create"}
+  - expect: {query: {q: page_count}, equals: 1}
+  - expect: {query: {q: object_count, page: 0}, equals: 0}
+  - expect_ui: {label: "Text overflow", exists: false}
+  - click: {label: "Open"}
+  - expect_ui: {label: "Recent: overflow-badge.npub"}
+  - click: {label: "Recent: overflow-badge.npub"}
+  - expect: {query: {q: page_count}, equals: 1}
+  - expect: {query: {q: object_count, page: 0}, equals: 3}
+  - expect: {query: {q: page_objects, page: 0}, equals: [$a, $b, $r]}
+  - expect: {query: {q: story_frames, target: $a}, equals: [$a, $b]}
+  - expect: {query: {q: overflow, target: $a}, equals: true}
+  - expect: {query: {q: object, id: $a}, path: /kind/autofit, equals: none}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [72, 0.5]}
+  - expect: {query: {q: frame_text, frame: $b}, len: {gt: 100}}
+  - expect: {query: {q: view}, path: /selection, equals: []}
+  - expect_ui: {label: "Text overflow"}

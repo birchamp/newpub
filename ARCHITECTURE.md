@@ -161,7 +161,7 @@ output consistent. Imposition (booklet, n-up) maps pages onto sheets as transfor
   Commands target the story; the selection holds the object that shows it (`holder`). `table_ui.rs` adds the current
   cell, the Shift-click cell block (`ViewState.cell_extent`), Tab between cells and the Format panel's Table card.
 - **Canvas tools beyond selection:** link mode for "Link to Next Box" (`ViewState.link_from`, also started from a
-  frame's overflow badge); ruler guides (`guides_ui.rs`: drag out of a ruler, move, drag back to delete; objects win
+  frame's overflow badge, which is a button with a tooltip and a right-click Text flow menu, `flow_ui.rs`); ruler guides (`guides_ui.rs`: drag out of a ruler, move, drag back to delete; objects win
   over guides when both are under the pointer). Clicking the page gives it keyboard focus.
 - **Windows:** Styles (`styles_ui.rs`, styles by example via `effective_para_attrs`/`effective_char_attrs`),
   Properties and Design Checker (`checker.rs`; the checker combines layout overflow, empty stories and the
@@ -253,6 +253,7 @@ file-level copyleft. The format notes are in crates/io-pub/FORMAT-NOTES.md.
 | 2026-10-31 | App only (no engine changes): canvas multi-selection (`NewpubApp.marquee`; Shift-click toggles, a Select-tool drag over empty page is a marquee); runner `drag` takes `shift: true`; the runner draws a frame after `expect_roundtrip` | UI-28 |
 | 2026-11-07 | `Query::Snap` takes an optional `tolerance` (points; default 6, unchanged); the app snaps canvas moves and resizes through it with 6 screen px at the current zoom (`NewpubApp.snap`, crates/app/src/snap_ui.rs); runner `drag` takes `alt: true` | UI-29 |
 | 2026-10-09 | App only (no engine changes): `ViewState.link_from`, `cell_extent`, `guide_drag`, `canvas_area`; `Dialog::InsertText`, `Dialog::SaveTemplate`; app `view` query reports `table_cell` and `table_selection`; page renders capped at the GPU's maximum texture side. Runner: widgets are scrolled into view with the mouse wheel before `click`/`fill`, Shift is held for a whole shift-click, a control is preferred over a caption with the same name, `step_dt` 1/30 s | UI-19..UI-23 |
+| 2026-11-14 | App only (no engine changes): the overflow badge is a widget in the flow overlay (`flow_ui::badge_overlay`) and the Text flow actions are shared (`flow_ui::{TextFlowState, TextFlowAction, text_flow_menu}`) by the badge menu, the canvas menu and the Text box card. Runner: `click` takes `last: true` (the last widget with that name, for a menu entry a panel button shares it with); when several widgets share a name, a Button is preferred over a Label, as a text field and a combo box already were | UI-30 |
 
 ## 12. Predecessor survey (NewsPub, Electron + React + TS) and what we adopt
 
