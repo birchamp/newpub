@@ -1,0 +1,369 @@
+id: UI-SN-002
+title: Snapping while drawing with a tool — a Text Box, Rectangle, Ellipse or Line dragged out on the page snaps both of its corners to the margins, the page centre, ruler guides and the edges of other objects, a corner far from everything lands where the pointer is, objects on a hidden layer are not snapped to until the layer is shown again, Alt places freely, the Page Design "Snap to Guides" button and the agent's set_snapping turn it off and on (the view and session queries report the one flag), a line drawn leftwards and upwards is one undo step, a click without a drag makes the default 2 × 1 in object without snapping, Shrink Text on Overflow from the last box of a chain sets autofit on the story's first box and is greyed out afterwards, and the snapped rects, the flips, the chain, the autofit and the guides survive save / open
+covers: [UI-31]
+ui: true
+steps:
+  # --- setup: two vertical ruler guides at 2in (144) and 4in (288). Letter page, 36 pt margins: the vertical
+  # targets are 0, 36, 144, 288, 306, 576, 612 and the horizontal ones 0, 36, 396, 756, 792, plus the edges and
+  # centres of whatever is on the page at the time of a drag. The harness zoom is about 0.71, so the snap distance
+  # (6 screen px) is about 8.4 pt: snapped corners end 3 pt from a target, unsnapped ones 16 pt or more from
+  # every target that exists at that moment. A corner is a point probe, so only its x and y snap, never a centre.
+  - agent: {tool: newpub_action, args: {action: add_guide, args: {page: 0, orientation: vertical, pos: "2in"}}}
+  - agent: {tool: newpub_action, args: {action: add_guide, args: {page: 0, orientation: vertical, pos: "4in"}}}
+  - expect: {query: {q: guides, page: 0}, path: /vertical, contains: 144}
+  - expect: {query: {q: guides, page: 0}, path: /vertical, contains: 288}
+  - expect: {query: {q: object_count, page: 0}, equals: 0}
+  - expect: {query: {q: view}, path: /tool, equals: Select}
+  - expect: {query: {q: view}, path: /snapping, equals: true}
+  - expect: {query: {q: session}, path: /snapping, equals: true}
+  - expect: {query: {q: view}, path: /zoom, gt: 0.6}
+  - expect: {query: {q: view}, path: /zoom, lt: 1.0}
+  - expect: {query: {q: history}, path: /undo, gt: 0, as: undo0}
+
+  # --- 1. a Text Box A: the press corner 3 pt right of guide 144 and 3 pt below the top margin 36 snaps onto
+  # both; the dragged corner 3 pt short of guide 288 snaps its x, while its y (297: the nearest targets are 36
+  # and 396) stays where the pointer put it. One undo step; the tool goes back to Select and the new box is
+  # selected and ready for typing. Undo takes the box away, redo brings the snapped rect back.
+  - click: {label: "Text Box"}
+  - expect: {query: {q: view}, path: /tool, equals: TextBox}
+  - drag: {from: [147, 39], to: [285, 297]}
+  - expect: {query: {q: object_count, page: 0}, equals: 1}
+  - expect: {query: {q: page_objects, page: 0}, path: /0, gt: 0, as: a}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [36, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/w, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/h, approx: [261, 1.5], as: ah}
+  - expect: {query: {q: object, id: $a}, path: /rect/h, gt: 259.5}
+  - expect: {query: {q: view}, path: /tool, equals: Select}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect: {query: {q: view}, path: /editing, equals: true}
+  - expect: {query: {q: history}, path: /undo, equals: $undo0+1}
+  - key: {key: "Escape"}
+  - expect: {query: {q: view}, path: /editing, equals: false}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - key: {key: "Z", command: true}
+  - expect: {query: {q: object_count, page: 0}, equals: 0}
+  - expect: {query: {q: history}, path: /undo, equals: $undo0}
+  - key: {key: "Y", command: true}
+  - expect: {query: {q: object_count, page: 0}, equals: 1}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [36, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/w, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/h, approx: [$ah, 0.01]}
+  - expect: {query: {q: history}, path: /undo, equals: $undo0+1}
+  - key: {key: "Escape"}
+
+  # --- 2. a Rectangle R far from everything: x 380 and 470 are 74 pt or more from 306 and 576 and from A's
+  # 144 / 216 / 288; y 450 and 540 are 54 pt or more from 396 and 756 and from A's 36 / 166 / 297. The raw drop.
+  - click: {label: "Rectangle"}
+  - expect: {query: {q: view}, path: /tool, equals: Rectangle}
+  - drag: {from: [380, 450], to: [470, 540]}
+  - expect: {query: {q: object_count, page: 0}, equals: 2}
+  - expect: {query: {q: page_objects, page: 0}, path: /1, gt: 0, as: r}
+  - expect: {query: {q: object, id: $r}, path: /rect/x, approx: [380, 1.5]}
+  - expect: {query: {q: object, id: $r}, path: /rect/y, approx: [450, 1.5]}
+  - expect: {query: {q: object, id: $r}, path: /rect/w, approx: [90, 1.5]}
+  - expect: {query: {q: object, id: $r}, path: /rect/h, approx: [90, 1.5]}
+  - expect: {query: {q: object, id: $r}, path: /kind/kind, equals: rect}
+  - expect: {query: {q: view}, path: /tool, equals: Select}
+  - expect: {query: {q: view}, path: /selection, equals: [$r]}
+  - expect: {query: {q: history}, path: /undo, equals: $undo0+2}
+
+  # --- 3. nothing snaps to an object on a hidden layer: R goes onto a new layer, which is hidden. A Rectangle
+  # whose press corner is 3 pt right of R's right edge (470) is not pulled onto it (the next targets, 576 and
+  # R's hidden centre 425, are 45 pt or more away; y 520 is 20 pt from R's hidden 540 and 124 from 396; x 556 is
+  # 20 pt from 576; y 600 is 60 from 540). Deleted; the layer shown again, the same drag snaps the corner onto 470.
+  - agent: {tool: newpub_action, args: {action: add_layer, args: {name: "Pictures"}}, path: /created/0, as: layer}
+  - expect: {query: {q: layers}, path: /0/name, equals: "Pictures"}
+  - expect: {query: {q: layers}, path: /0/visible, equals: true}
+  - agent: {tool: newpub_action, args: {action: set_object, args: {id: $r, patch: {layer: $layer}}}}
+  - expect: {query: {q: object, id: $r}, path: /layer, equals: $layer}
+  - agent: {tool: newpub_action, args: {action: set_layer, args: {layer: $layer, visible: false}}}
+  - expect: {query: {q: layers}, path: /0/visible, equals: false}
+  - click: {label: "Rectangle"}
+  - drag: {from: [473, 520], to: [556, 600]}
+  - expect: {query: {q: object_count, page: 0}, equals: 3}
+  - expect: {query: {q: page_objects, page: 0}, path: /2, gt: 0, as: h1}
+  - expect: {query: {q: object, id: $h1}, path: /rect/x, approx: [473, 1.5]}
+  - expect: {query: {q: object, id: $h1}, path: /rect/x, gt: 471.5}
+  - expect: {query: {q: object, id: $h1}, path: /rect/y, approx: [520, 1.5]}
+  - expect: {query: {q: object, id: $h1}, path: /rect/w, approx: [83, 1.5]}
+  - expect: {query: {q: view}, path: /selection, equals: [$h1]}
+  - key: {key: "Delete"}
+  - expect: {query: {q: object_count, page: 0}, equals: 2}
+  - agent: {tool: newpub_action, args: {action: set_layer, args: {layer: $layer, visible: true}}}
+  - expect: {query: {q: layers}, path: /0/visible, equals: true}
+  - click: {label: "Rectangle"}
+  - drag: {from: [473, 520], to: [556, 600]}
+  - expect: {query: {q: object_count, page: 0}, equals: 3}
+  - expect: {query: {q: page_objects, page: 0}, path: /2, gt: 0, as: h2}
+  - expect: {query: {q: object, id: $h2}, path: /rect/x, approx: [470, 0.01]}
+  - expect: {query: {q: object, id: $h2}, path: /rect/y, approx: [520, 1.5]}
+  - expect: {query: {q: object, id: $h2}, path: /rect/w, approx: [86, 1.5]}
+  - expect: {query: {q: object, id: $r}, path: /rect/x, approx: [380, 1.5]}
+  - key: {key: "Delete"}
+  - expect: {query: {q: object_count, page: 0}, equals: 2}
+
+  # --- 4. Alt held for the drag: a Rectangle whose press corner is 3 pt right of guide 288 keeps the 3 pt
+  # (y 620 is 80 pt from R's 540 and 136 from 756; x 400 is 20 pt from R's 380; y 700 is 56 pt from 756)
+  - click: {label: "Rectangle"}
+  - drag: {from: [291, 620], to: [400, 700], alt: true}
+  - expect: {query: {q: object_count, page: 0}, equals: 3}
+  - expect: {query: {q: page_objects, page: 0}, path: /2, gt: 0, as: f1}
+  - expect: {query: {q: object, id: $f1}, path: /rect/x, approx: [291, 1.5]}
+  - expect: {query: {q: object, id: $f1}, path: /rect/x, gt: 289.5}
+  - expect: {query: {q: object, id: $f1}, path: /rect/y, approx: [620, 1.5]}
+  - expect: {query: {q: object, id: $f1}, path: /rect/w, approx: [109, 1.5]}
+  - key: {key: "Delete"}
+  - expect: {query: {q: object_count, page: 0}, equals: 2}
+
+  # --- 5. "Snap to Guides" off on the Page Design tab (the tool buttons are on the Home tab): the same drag as
+  # (4) without Alt stays 3 pt off the guide. On again: an Ellipse dragged from 3 pt inside the page centre
+  # lines (306, 396) to 3 pt inside the right and bottom margins (576, 756) snaps all four edges at once.
+  - click: {label: "Page Design"}
+  - click: {label: "Snap to Guides"}
+  - expect: {query: {q: view}, path: /snapping, equals: false}
+  - expect: {query: {q: session}, path: /snapping, equals: false}
+  - click: {label: "Home"}
+  - click: {label: "Rectangle"}
+  - drag: {from: [291, 620], to: [400, 700]}
+  - expect: {query: {q: object_count, page: 0}, equals: 3}
+  - expect: {query: {q: page_objects, page: 0}, path: /2, gt: 0, as: f2}
+  - expect: {query: {q: object, id: $f2}, path: /rect/x, approx: [291, 1.5]}
+  - expect: {query: {q: object, id: $f2}, path: /rect/x, gt: 289.5}
+  - expect: {query: {q: object, id: $f2}, path: /rect/y, approx: [620, 1.5]}
+  - key: {key: "Delete"}
+  - expect: {query: {q: object_count, page: 0}, equals: 2}
+  - click: {label: "Page Design"}
+  - click: {label: "Snap to Guides"}
+  - expect: {query: {q: view}, path: /snapping, equals: true}
+  - expect: {query: {q: session}, path: /snapping, equals: true}
+  - click: {label: "Home"}
+  - click: {label: "Ellipse"}
+  - expect: {query: {q: view}, path: /tool, equals: Ellipse}
+  # the layer actions and the trial rectangles with their deletes were undo steps too: count from here
+  - expect: {query: {q: history}, path: /undo, gt: 0, as: undo1}
+  - drag: {from: [309, 399], to: [573, 753]}
+  - expect: {query: {q: object_count, page: 0}, equals: 3}
+  - expect: {query: {q: page_objects, page: 0}, path: /2, gt: 0, as: e}
+  - expect: {query: {q: object, id: $e}, path: /kind/kind, equals: ellipse}
+  - expect: {query: {q: object, id: $e}, path: /rect/x, approx: [306, 0.01]}
+  - expect: {query: {q: object, id: $e}, path: /rect/y, approx: [396, 0.01]}
+  - expect: {query: {q: object, id: $e}, path: /rect/w, approx: [270, 0.01]}
+  - expect: {query: {q: object, id: $e}, path: /rect/h, approx: [360, 0.01]}
+  - expect: {query: {q: view}, path: /selection, equals: [$e]}
+  - expect: {query: {q: history}, path: /undo, equals: $undo1+1}
+
+  # --- 6. a Line drawn leftwards and upwards, from 3 pt right of guide 288 to 3 pt right of guide 144: both ends
+  # snap their x (y 620 and 340 are 40 pt or more from E's 396 / 576 / 756, R's 540 and A's 297). It is stored
+  # as the positive rect 144..288 with flip_h and flip_v, and the add and the flip are ONE undo step.
+  - click: {label: "Line"}
+  - expect: {query: {q: view}, path: /tool, equals: Line}
+  - drag: {from: [291, 620], to: [147, 340]}
+  - expect: {query: {q: object_count, page: 0}, equals: 4}
+  - expect: {query: {q: page_objects, page: 0}, path: /3, gt: 0, as: l}
+  - expect: {query: {q: object, id: $l}, path: /kind/kind, equals: line}
+  - expect: {query: {q: object, id: $l}, path: /rect/x, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $l}, path: /rect/w, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $l}, path: /rect/y, approx: [340, 1.5]}
+  - expect: {query: {q: object, id: $l}, path: /rect/h, approx: [280, 1.5]}
+  - expect: {query: {q: object, id: $l}, path: /flip_h, equals: true}
+  - expect: {query: {q: object, id: $l}, path: /flip_v, equals: true}
+  - expect: {query: {q: view}, path: /tool, equals: Select}
+  - expect: {query: {q: view}, path: /selection, equals: [$l]}
+  - expect: {query: {q: history}, path: /undo, equals: $undo1+2}
+  - key: {key: "Z", command: true}
+  - expect: {query: {q: object_count, page: 0}, equals: 3}
+  - expect: {query: {q: history}, path: /undo, equals: $undo1+1}
+  - key: {key: "Y", command: true}
+  - expect: {query: {q: object_count, page: 0}, equals: 4}
+  - expect: {query: {q: object, id: $l}, path: /rect/x, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $l}, path: /rect/w, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $l}, path: /flip_h, equals: true}
+  - expect: {query: {q: object, id: $l}, path: /flip_v, equals: true}
+  - expect: {query: {q: history}, path: /undo, equals: $undo1+2}
+
+  # --- 7. a click without a drag: the Text Box tool makes the default 2 × 1 in (144 × 72 pt) box where the
+  # pointer is, 3 pt right of guide 288 and 5 pt below the line's top edge (340), and nothing is lined up, so it
+  # does not snap. Escape leaves the typing; Delete takes the box away again.
+  - click: {label: "Text Box"}
+  - click_at: [291, 345]
+  - expect: {query: {q: object_count, page: 0}, equals: 5}
+  - expect: {query: {q: page_objects, page: 0}, path: /4, gt: 0, as: c}
+  - expect: {query: {q: object, id: $c}, path: /rect/x, approx: [291, 1.5]}
+  - expect: {query: {q: object, id: $c}, path: /rect/x, gt: 289.5}
+  - expect: {query: {q: object, id: $c}, path: /rect/y, approx: [345, 1.5]}
+  - expect: {query: {q: object, id: $c}, path: /rect/y, gt: 343.5}
+  - expect: {query: {q: object, id: $c}, path: /rect/w, approx: [144, 0.05]}
+  - expect: {query: {q: object, id: $c}, path: /rect/h, approx: [72, 0.05]}
+  - expect: {query: {q: view}, path: /tool, equals: Select}
+  - expect: {query: {q: view}, path: /selection, equals: [$c]}
+  - expect: {query: {q: view}, path: /editing, equals: true}
+  - key: {key: "Escape"}
+  - expect: {query: {q: view}, path: /editing, equals: false}
+  - key: {key: "Delete"}
+  - expect: {query: {q: object_count, page: 0}, equals: 4}
+
+  # --- 8. the agent's set_snapping is the same flag: off, the view and session queries say so and a Rectangle
+  # whose press corner is 3 pt right of guide 288 stays there (y 660 is 40 pt from the line's 620; x 400 is 20
+  # from R's 380; y 720 is 36 from 756); on again, both queries say so
+  - agent: {tool: newpub_action, args: {action: set_snapping, args: {enabled: false}}}
+  - expect: {query: {q: view}, path: /snapping, equals: false}
+  - expect: {query: {q: session}, path: /snapping, equals: false}
+  - click: {label: "Rectangle"}
+  - drag: {from: [291, 660], to: [400, 720]}
+  - expect: {query: {q: object_count, page: 0}, equals: 5}
+  - expect: {query: {q: page_objects, page: 0}, path: /4, gt: 0, as: f3}
+  - expect: {query: {q: object, id: $f3}, path: /rect/x, approx: [291, 1.5]}
+  - expect: {query: {q: object, id: $f3}, path: /rect/x, gt: 289.5}
+  - expect: {query: {q: object, id: $f3}, path: /rect/y, approx: [660, 1.5]}
+  - key: {key: "Delete"}
+  - expect: {query: {q: object_count, page: 0}, equals: 4}
+  - agent: {tool: newpub_action, args: {action: set_snapping, args: {enabled: true}}}
+  - expect: {query: {q: view}, path: /snapping, equals: true}
+  - expect: {query: {q: session}, path: /snapping, equals: true}
+
+  # --- 9. a second Text Box B, snapped on all four edges: the press corner 3 pt inside the page centre line
+  # (306) and the top margin (36), the dragged corner 3 pt inside the right margin (576) and level with A's
+  # bottom edge (297, unsnapped in (1), so B's height equals A's). A gets fixtures/long-text.txt (12 KB, far more
+  # than the two boxes hold) and is linked to B from its canvas menu; the overflow badge is on B, the LAST box.
+  # the click-made box, the trial rectangle and their deletes were undo steps too: count from here
+  - expect: {query: {q: history}, path: /undo, gt: 0, as: undo2}
+  - click: {label: "Text Box"}
+  - drag: {from: [309, 39], to: [573, 297]}
+  - expect: {query: {q: object_count, page: 0}, equals: 5}
+  - expect: {query: {q: page_objects, page: 0}, path: /4, gt: 0, as: b}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [306, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [36, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/w, approx: [270, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/h, approx: [$ah, 0.01]}
+  - key: {key: "Escape"}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - expect: {query: {q: history}, path: /undo, equals: $undo2+1}
+  # A's centre is (216, 166): the line (144..288 × 340..620) and the ellipse (306.. × 396..) are clear of it
+  - click_at: [216, 166]
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - click: {label: "Insert"}
+  - click: {label: "Text File"}
+  - fill: {label: "Text file", text: "fixtures/long-text.txt"}
+  - click: {label: "Insert Text"}
+  - expect: {query: {q: story_text, target: $a}, starts_with: "New mayor library hall"}
+  - expect: {query: {q: overflow, target: $a}, equals: true}
+  - expect: {query: {q: object, id: $a}, path: /kind/autofit, equals: none}
+  - click: {label: "Home"}
+  - expect: {query: {q: history}, path: /undo, equals: $undo2+2}
+  - click_at: {at: [216, 166], button: secondary}
+  - expect: {query: {q: view}, path: /selection, equals: [$a]}
+  - expect_ui: {label: "Text flow"}
+  - click: {label: "Link to Next Box", last: true}
+  - expect: {query: {q: view}, path: /link_mode, equals: $a}
+  - expect: {query: {q: view}, path: /link_targets, equals: [$b]}
+  # B's centre is (441, 166)
+  - click_at: [441, 166]
+  - expect: {query: {q: view}, path: /link_mode, equals: null}
+  - expect: {query: {q: story_frames, target: $a}, equals: [$a, $b]}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - expect: {query: {q: frame_text, frame: $b}, len: {gt: 100}}
+  - expect: {query: {q: overflow, target: $a}, equals: true}
+  - expect: {query: {q: history}, path: /undo, equals: $undo2+3}
+  # (100, 700) is empty page: nothing selected, the one badge (on B, which overflows) is a widget
+  - click_at: [100, 700]
+  - expect: {query: {q: view}, path: /selection, equals: []}
+  - expect_ui: {label: "Text overflow"}
+
+  # --- Shrink Text on Overflow from the badge menu of B, the last box: autofit goes onto A, the FIRST box of
+  # the story (the one the layout reads it from); B's own setting stays none. The text fits, the badge goes,
+  # one undo step; undo and redo.
+  - click: {label: "Text overflow", button: secondary}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - expect_ui: {label: "Text flow"}
+  - expect_ui: {label: "Shrink Text on Overflow"}
+  - click: {label: "Shrink Text on Overflow"}
+  - expect: {query: {q: object, id: $a}, path: /kind/autofit, equals: shrink_on_overflow}
+  - expect: {query: {q: object, id: $a}, path: /kind/fit_scale, lt: 1.0}
+  - expect: {query: {q: object, id: $b}, path: /kind/autofit, equals: none}
+  - expect: {query: {q: object, id: $b}, path: /kind/fit_scale, equals: 1.0}
+  - expect: {query: {q: overflow, target: $a}, equals: false}
+  - expect: {query: {q: story_frames, target: $a}, equals: [$a, $b]}
+  - expect: {query: {q: history}, path: /undo, equals: $undo2+4}
+  - expect_ui: {label: "Text overflow", exists: false}
+  - expect_ui: {label: "Text flow", exists: false}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - click: {label: "Undo"}
+  - expect: {query: {q: object, id: $a}, path: /kind/autofit, equals: none}
+  - expect: {query: {q: object, id: $a}, path: /kind/fit_scale, equals: 1.0}
+  - expect: {query: {q: overflow, target: $a}, equals: true}
+  - expect: {query: {q: history}, path: /undo, equals: $undo2+3}
+  - expect_ui: {label: "Text overflow"}
+  - click: {label: "Redo"}
+  - expect: {query: {q: object, id: $a}, path: /kind/autofit, equals: shrink_on_overflow}
+  - expect: {query: {q: object, id: $a}, path: /kind/fit_scale, lt: 1.0}
+  - expect: {query: {q: object, id: $b}, path: /kind/autofit, equals: none}
+  - expect: {query: {q: overflow, target: $a}, equals: false}
+  - expect: {query: {q: history}, path: /undo, equals: $undo2+4}
+  - expect_ui: {label: "Text overflow", exists: false}
+  # afterwards the entry is greyed out in B's canvas menu, with the reason as its tooltip (egui shows it after
+  # 0.5 s of rest; the reason reads the FIRST box's setting, so it is "already on", not "all the text fits"),
+  # and a click on it changes nothing: no undo step, A's setting as it was
+  - click_at: {at: [441, 166], button: secondary}
+  - expect: {query: {q: view}, path: /selection, equals: [$b]}
+  - expect_ui: {label: "Text flow"}
+  - hover: {label: "Shrink Text on Overflow"}
+  - run: {}
+  - run: {}
+  - run: {}
+  - run: {}
+  - run: {}
+  - run: {}
+  - run: {}
+  - run: {}
+  - expect_ui: {label: "Autofit is already on; change it in the Format panel"}
+  - click: {label: "Shrink Text on Overflow"}
+  - expect: {query: {q: object, id: $a}, path: /kind/autofit, equals: shrink_on_overflow}
+  - expect: {query: {q: object, id: $b}, path: /kind/autofit, equals: none}
+  - expect: {query: {q: history}, path: /undo, equals: $undo2+4}
+  - key: {key: "Escape"}
+  - expect_ui: {label: "Text flow", exists: false}
+
+  # --- 10. round trip: the engine's save / open equality, then Save -> New -> Open through the dialogs keep the
+  # snapped rects, the line's flips, the layer, the chain, the autofit and the guides
+  - expect_roundtrip: {}
+  - click: {label: "Save"}
+  - expect_ui: {label: "Save Publication"}
+  - fill: {label: "File name", text: "snap-draw.npub"}
+  - click: {label: "Save File"}
+  - expect: {query: {q: session}, path: /dirty, equals: false}
+  - click: {label: "New"}
+  - click: {label: "Create"}
+  - expect: {query: {q: object_count, page: 0}, equals: 0}
+  - click: {label: "Open"}
+  - expect_ui: {label: "Recent: snap-draw.npub"}
+  - click: {label: "Recent: snap-draw.npub"}
+  - expect: {query: {q: object_count, page: 0}, equals: 5}
+  - expect: {query: {q: page_objects, page: 0}, equals: [$a, $r, $e, $l, $b]}
+  - expect: {query: {q: object, id: $a}, path: /rect/x, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/y, approx: [36, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/w, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $a}, path: /rect/h, approx: [$ah, 0.01]}
+  - expect: {query: {q: object, id: $r}, path: /rect/x, approx: [380, 1.5]}
+  - expect: {query: {q: object, id: $r}, path: /layer, equals: $layer}
+  - expect: {query: {q: layers}, path: /0/visible, equals: true}
+  - expect: {query: {q: object, id: $e}, path: /rect/x, approx: [306, 0.01]}
+  - expect: {query: {q: object, id: $e}, path: /rect/y, approx: [396, 0.01]}
+  - expect: {query: {q: object, id: $e}, path: /rect/w, approx: [270, 0.01]}
+  - expect: {query: {q: object, id: $e}, path: /rect/h, approx: [360, 0.01]}
+  - expect: {query: {q: object, id: $l}, path: /rect/x, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $l}, path: /rect/w, approx: [144, 0.01]}
+  - expect: {query: {q: object, id: $l}, path: /flip_h, equals: true}
+  - expect: {query: {q: object, id: $l}, path: /flip_v, equals: true}
+  - expect: {query: {q: object, id: $b}, path: /rect/x, approx: [306, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/y, approx: [36, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/w, approx: [270, 0.01]}
+  - expect: {query: {q: object, id: $b}, path: /rect/h, approx: [$ah, 0.01]}
+  - expect: {query: {q: story_frames, target: $a}, equals: [$a, $b]}
+  - expect: {query: {q: object, id: $a}, path: /kind/autofit, equals: shrink_on_overflow}
+  - expect: {query: {q: object, id: $a}, path: /kind/fit_scale, lt: 1.0}
+  - expect: {query: {q: object, id: $b}, path: /kind/autofit, equals: none}
+  - expect: {query: {q: overflow, target: $a}, equals: false}
+  - expect: {query: {q: guides, page: 0}, path: /vertical, contains: 144}
+  - expect: {query: {q: guides, page: 0}, path: /vertical, contains: 288}

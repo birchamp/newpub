@@ -136,6 +136,11 @@ impl Session {
         Session::new(Arc::new(FontStore::bundled()))
     }
 
+    /// Whether canvas snapping ("Snap to Guides") is on. The app reads it each frame, since an agent can set it.
+    pub fn snapping(&self) -> bool {
+        !self.guides.snapping_off
+    }
+
     pub fn doc(&self) -> &Document {
         &self.doc
     }
@@ -855,6 +860,7 @@ impl Session {
                 "path": self.path.as_ref().map(|p| p.to_string_lossy().to_string()),
                 "dirty": self.dirty,
                 "units": self.guides.units,
+                "snapping": self.snapping(),
             }),
             AllStoryText => json!(self.doc.stories.values().map(|s| s.text.clone()).collect::<Vec<_>>().join("\n")),
             Table { id } => {

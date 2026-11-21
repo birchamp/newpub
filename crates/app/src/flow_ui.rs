@@ -388,9 +388,10 @@ pub(crate) struct TextFlowEntry {
 impl TextFlowEntry {
     /// Draws the entry as a small button; true when clicked.
     pub(crate) fn button(&self, ui: &mut egui::Ui) -> bool {
+        // A greyed-out entry is still an egui widget that only hovers (see `small_button`), so its reason is
+        // chosen here rather than left to `on_disabled_hover_text`, which never applies to it.
         widgets::small_button(ui, self.icon, self.label, self.selected, self.enabled)
-            .on_hover_text(self.tip)
-            .on_disabled_hover_text(self.why_not)
+            .on_hover_text(if self.enabled { self.tip } else { self.why_not })
             .clicked()
     }
 }
@@ -462,6 +463,12 @@ pub(crate) fn text_flow_entries(st: &TextFlowState) -> [TextFlowEntry; 6] {
     ]
 }
 
+/// The box that carries a story's autofit setting: the first of its chain (the one the engine's autofit fixup
+/// and the layout read), or `id` itself for a box with no story.
+pub(crate) fn autofit_frame(doc: &Document, id: Id) -> Id {
+    doc.story_of(id).ok().and_then(|s| doc.story(s).ok()).and_then(|s| s.frames.first().copied()).unwrap_or(id)
+}
+
 impl NewpubApp {
     /// The Text flow state of `id`, or None unless it is a text box.
     pub(crate) fn text_flow_state(&mut self, id: Id) -> Option<TextFlowState> {
@@ -475,11 +482,16 @@ impl NewpubApp {
         let overflow = sid.is_some_and(|s| layout.stories.get(&s).is_some_and(|l| l.overflow_at.is_some()));
         let chain =
             (frames.len() >= 2).then(|| frames.iter().position(|f| *f == id).map(|i| (i, frames.len()))).flatten();
+        // Autofit is the story's, carried by its first box.
+        let autofit = match frames.first().and_then(|f| doc.objects.get(f)).map(|o| &o.kind) {
+            Some(ObjectKind::Text(f)) => f.autofit,
+            _ => t.autofit,
+        };
         Some(TextFlowState {
             overflow,
             has_next: frames.last().is_some_and(|l| *l != id),
             chain,
-            autofit_none: t.autofit == Autofit::None,
+            autofit_none: autofit == Autofit::None,
             linking: self.view.link_from == Some(id),
         })
     }
@@ -492,6 +504,8 @@ impl NewpubApp {
                 self.act(SessionAction::Autoflow { frame: id });
             }
             TextFlowAction::Shrink => {
+                // From any box of the chain, the setting goes to the box the layout reads it from.
+                let id = autofit_frame(self.session.doc(), id);
                 let patch = TextFramePatch { autofit: Some(Autofit::ShrinkOnOverflow), ..Default::default() };
                 self.act(Command::SetTextFrame { id, patch });
             }

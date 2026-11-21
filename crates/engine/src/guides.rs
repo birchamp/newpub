@@ -3,7 +3,7 @@
 use crate::action::Units;
 use crate::{EngineError, Outcome, Query, Session, SessionAction};
 use newpub_core::units::parse_length;
-use newpub_core::{Command, CoreError, Id, ObjectPatch, Orientation, Rect};
+use newpub_core::{Command, CoreError, Document, Id, Object, ObjectPatch, Orientation, Rect};
 use serde_json::{Value, json};
 
 /// Snap distance in points.
@@ -128,7 +128,7 @@ impl Session {
             }
             // Nothing snaps to an object that is not shown.
             if let Ok(o) = self.doc.object(*id)
-                && !o.hidden
+                && shown(&self.doc, o)
             {
                 let r = o.rect;
                 vt.extend([r.x, r.x + r.w / 2.0, r.x + r.w]);
@@ -149,6 +149,11 @@ impl Session {
         }
         Ok(json!({"rect": out, "lines": lines}))
     }
+}
+
+/// True when the object is drawn: not hidden, and not on a hidden layer (the renderer's rule).
+fn shown(doc: &Document, o: &Object) -> bool {
+    !o.hidden && o.layer.and_then(|l| doc.layers.iter().find(|x| x.id == l)).is_none_or(|l| l.visible)
 }
 
 /// Edges of `n` equal columns separated by `gutter` between `a` and `b`.

@@ -175,7 +175,7 @@ impl NewpubApp {
     /// Extra fields of `view_state`.
     pub(crate) fn view_extra(&self, v: &mut serde_json::Value) {
         v["units"] = units_code(self.view.units).into();
-        v["snapping"] = self.design_ui.snapping.into();
+        v["snapping"] = self.session.snapping().into();
         v["scroll"] = serde_json::json!([self.view.scroll.x, self.view.scroll.y]);
         v["spread"] = self.view.spread.into();
         v["visible_pages"] = serde_json::json!(self.visible_pages());
@@ -385,11 +385,20 @@ impl NewpubApp {
             resp.context_menu(|ui| self.canvas_menu(ui));
         }
         self.canvas_keys(&ctx, &resp);
-        // The rectangle of a drawing tool, or the marquee of the Select tool.
-        if let (Some(a), Some(b)) = (self.drag_start, self.drag_now)
-            && (self.tool != Tool::Select || self.marquee.is_some())
+        // The rectangle of a drawing tool (from its snapped corners, so it jumps onto a guide as the object
+        // will), or the marquee of the Select tool.
+        let c = crate::theme::palette(&ctx).primary;
+        if let Some((x0, y0, x1, y1)) = self.drawing_corners() {
+            let (a, b) = (self.page_to_screen(x0, y0), self.page_to_screen(x1, y1));
+            if self.tool == Tool::Line {
+                painter.line_segment([a, b], Stroke::new(1.5, c));
+            } else {
+                painter.rect_filled(ERect::from_two_pos(a, b), 0.0, c.gamma_multiply(0.08));
+                painter.rect_stroke(ERect::from_two_pos(a, b), 0.0, Stroke::new(1.0, c), egui::StrokeKind::Middle);
+            }
+        } else if let (Some(a), Some(b)) = (self.drag_start, self.drag_now)
+            && self.marquee.is_some()
         {
-            let c = crate::theme::palette(&ctx).primary;
             painter.rect_filled(ERect::from_two_pos(a, b), 0.0, c.gamma_multiply(0.08));
             painter.rect_stroke(ERect::from_two_pos(a, b), 0.0, Stroke::new(1.0, c), egui::StrokeKind::Middle);
         }

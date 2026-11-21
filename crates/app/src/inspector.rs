@@ -269,7 +269,7 @@ impl NewpubApp {
             for tip in [
                 "Click an object to select it. Shift-click adds another or takes one out again.",
                 "Drag across an empty part of the page to select everything inside the box; hold Shift to add to the selection.",
-                "Draw a Text Box, then type to fill it.",
+                "Draw a Text Box, then type to fill it. Its corners snap to nearby guides, margins and other boxes, so it lines up without typing numbers.",
                 "Arrow keys nudge the selection; hold Shift for bigger steps.",
                 "Drag a corner handle to resize.",
                 "A red + on a text box means more text than fits: click it to continue the story in another box, or right-click it for other ways.",
@@ -279,7 +279,7 @@ impl NewpubApp {
             widgets::hint(
                 ui,
                 &format!(
-                    "Objects snap to the margins, guides and other objects as you drag; hold {} to place freely.",
+                    "Objects snap to the margins, guides and other objects as you draw, drag or resize them; hold {} to place freely.",
                     crate::snap_ui::free_key()
                 ),
             );
@@ -538,8 +538,18 @@ impl NewpubApp {
                 }
             }
         });
+        if patch != TextFramePatch::default() {
+            self.act_run(format!("{key}:{id}"), Command::SetTextFrame { id, patch });
+        }
+        // Autofit belongs to the story, carried by its first box (the one the layout reads), whichever box of
+        // the chain is selected.
+        let fit_id = crate::flow_ui::autofit_frame(self.session.doc(), id);
+        let fit = match self.session.doc().objects.get(&fit_id).map(|o| &o.kind) {
+            Some(ObjectKind::Text(f)) => f.autofit,
+            _ => t.autofit,
+        };
         let fits = ["No autofit", "Shrink text on overflow", "Best fit", "Grow frame"];
-        let cur = match t.autofit {
+        let cur = match fit {
             Autofit::None => 0,
             Autofit::ShrinkOnOverflow => 1,
             Autofit::BestFit => 2,
@@ -548,11 +558,12 @@ impl NewpubApp {
         if let Some(i) = choice(ui, "Autofit", fits[cur], &fits)
             && i != cur
         {
-            patch.autofit = Some([Autofit::None, Autofit::ShrinkOnOverflow, Autofit::BestFit, Autofit::GrowFrame][i]);
-            key = "autofit";
+            let autofit = Some([Autofit::None, Autofit::ShrinkOnOverflow, Autofit::BestFit, Autofit::GrowFrame][i]);
+            let patch = TextFramePatch { autofit, ..Default::default() };
+            self.act_run(format!("autofit:{fit_id}"), Command::SetTextFrame { id: fit_id, patch });
         }
-        if patch != TextFramePatch::default() {
-            self.act_run(format!("{key}:{id}"), Command::SetTextFrame { id, patch });
+        if fit_id != id {
+            widgets::hint(ui, "Autofit is a setting of the whole story; it is kept on its first box.");
         }
         let Some(st) = self.text_flow_state(id) else { return };
         if st.overflow {

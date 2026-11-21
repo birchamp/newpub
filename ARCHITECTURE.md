@@ -254,6 +254,7 @@ file-level copyleft. The format notes are in crates/io-pub/FORMAT-NOTES.md.
 | 2026-11-07 | `Query::Snap` takes an optional `tolerance` (points; default 6, unchanged); the app snaps canvas moves and resizes through it with 6 screen px at the current zoom (`NewpubApp.snap`, crates/app/src/snap_ui.rs); runner `drag` takes `alt: true` | UI-29 |
 | 2026-10-09 | App only (no engine changes): `ViewState.link_from`, `cell_extent`, `guide_drag`, `canvas_area`; `Dialog::InsertText`, `Dialog::SaveTemplate`; app `view` query reports `table_cell` and `table_selection`; page renders capped at the GPU's maximum texture side. Runner: widgets are scrolled into view with the mouse wheel before `click`/`fill`, Shift is held for a whole shift-click, a control is preferred over a caption with the same name, `step_dt` 1/30 s | UI-19..UI-23 |
 | 2026-11-14 | App only (no engine changes): the overflow badge is a widget in the flow overlay (`flow_ui::badge_overlay`) and the Text flow actions are shared (`flow_ui::{TextFlowState, TextFlowAction, text_flow_menu}`) by the badge menu, the canvas menu and the Text box card. Runner: `click` takes `last: true` (the last widget with that name, for a menu entry a panel button shares it with); when several widgets share a name, a Button is preferred over a Label, as a text field and a combo box already were | UI-30 |
+| 2026-11-21 | Engine: `Session::snapping()`, `Query::Session` reports `snapping`, and `Query::Snap` skips objects on hidden layers as it skips hidden objects. App: drawing-tool drags snap both corners through the same query (`NewpubApp.drawing`, `snap_ui::DrawStart`; the press corner once, the dragged corner every frame), a flipped Line is one undo step (`BeginGroup`/`EndGroup`), the Page Design button and the `view` query read the engine's snapping flag instead of a copy, and Shrink Text on Overflow / the Autofit choice target the story's first box (`flow_ui::autofit_frame`). No core, io or `.npub` change | UI-31, review findings on #5 and #6 |
 
 ## 12. Predecessor survey (NewsPub, Electron + React + TS) and what we adopt
 
@@ -277,7 +278,10 @@ both screen and PDF.
 - Snapping tolerance is 6 screen px. Targets are page edges, margins, page centre, and sibling objects' edges and centres. When
   moving, the closest match per axis wins; when resizing, only the dragged edges snap. No snapping while nudging. Same as GD-03 plus
   the page-centre target. On the canvas (UI-29) the whole selection snaps as one rectangle, a line across the page shows the
-  target while the drag is live, and holding Alt places freely (Publisher's behaviour).
+  target while the drag is live, and holding Alt places freely (Publisher's behaviour). Drawing a new object with a
+  tool snaps the same way (UI-31): the corner the drag started from once, as the drag begins, and the dragged corner
+  every frame, each as a point (its x and y only, never the new object's centre); a click without a drag places the
+  default-sized object where the pointer is, unsnapped.
 - Undo grouping: a typing burst is one step (we coalesce on contiguous insertion; the predecessor used 900 ms), and a drag
   gesture is one step.
 - Spread view: page 1 alone on the right, then 2+3, 4+5 (matches Publisher's facing-pages display and our `spreads` query).

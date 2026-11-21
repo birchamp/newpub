@@ -1,7 +1,9 @@
 //! Snapping on the canvas (GD-03 in the UI): while an object is moved or resized with the mouse, its edges and
 //! centre snap to the page edges and centre, the margins, grid and ruler guides and the edges and centres of the
-//! other objects on the page, and a line across the page shows what it snapped to. Alt (Option on a Mac) places
-//! freely.
+//! other objects on the page, and a line across the page shows what it snapped to. While a tool draws a new
+//! object, both of its corners snap the same way: the one the drag started from once, and the dragged one every
+//! frame. Alt (Option on a Mac) places freely; pressed in the middle of a drawing drag it frees only the dragged
+//! corner, since the first one is already placed.
 //!
 //! The engine decides (`Query::Snap`, which also honours "Snap to Guides" off); this module only asks it with the
 //! right rectangle, keeps the answer for the frame and draws it. Nudging with the arrow keys never snaps.
@@ -28,21 +30,65 @@ pub(crate) fn free_key() -> &'static str {
 /// What the live drag snapped to this frame.
 #[derive(Default, Clone, Debug, PartialEq)]
 pub(crate) struct SnapState {
-    /// Added to the raw pointer offset: the move of the whole selection, or of the dragged edges of a resize.
+    /// Added to the raw pointer offset: the move of the whole selection, the dragged edges of a resize, or the
+    /// dragged corner of a drawing tool.
     pub delta: Vec2,
     /// The guide lines to draw, in page points.
     pub lines: Vec<(Orientation, f64)>,
 }
 
+/// The start of a drawing-tool drag: the corner it began from, in page points, snapped once when the drag began
+/// (unless Alt was held), and the lines it snapped to, shown for the whole drag beside the dragged corner's.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct DrawStart {
+    pub origin: (f64, f64),
+    pub lines: Vec<(Orientation, f64)>,
+}
+
 impl NewpubApp {
-    /// Recomputes the snap of the live move or resize from the raw pointer offset. `moving` is already the raw
-    /// offset when this is called; it is corrected in place. Alt bypasses snapping for as long as it is held.
+    /// Snaps the corner a drawing drag starts from (screen point `p`). Alt places it freely.
+    pub(crate) fn snap_draw_start(&mut self, p: Pos2, alt: bool) -> DrawStart {
+        let (x, y) = self.screen_to_page(p);
+        let free = DrawStart { origin: (x, y), lines: Vec::new() };
+        if alt {
+            return free;
+        }
+        let tolerance = f64::from(SNAP_PX / self.zoom.max(0.01));
+        match self.ask_snap(Rect::new(x, y, 0.0, 0.0), Vec::new(), tolerance) {
+            Some((r, lines)) => DrawStart { origin: (r.x, r.y), lines },
+            None => free,
+        }
+    }
+
+    /// The corners a drawing tool has dragged out, in page points, both snapped: `(x0, y0)` where the drag began
+    /// and `(x1, y1)` where the pointer is now, so the differences are negative for a line drawn leftwards or
+    /// upwards. None unless a drawing drag is live.
+    pub(crate) fn drawing_corners(&self) -> Option<(f64, f64, f64, f64)> {
+        let start = self.drawing.as_ref()?;
+        let (x, y) = self.screen_to_page(self.drag_now?);
+        Some((start.origin.0, start.origin.1, x + f64::from(self.snap.delta.x), y + f64::from(self.snap.delta.y)))
+    }
+
+    /// Recomputes the snap of the live move, resize or drawing drag from the raw pointer offset. `moving` is
+    /// already the raw offset when this is called; it is corrected in place. Alt bypasses snapping for as long as
+    /// it is held.
     pub(crate) fn update_snap(&mut self, alt: bool) {
         self.snap = SnapState::default();
-        if alt || self.tool != Tool::Select {
+        if alt {
             return;
         }
         let tolerance = f64::from(SNAP_PX / self.zoom.max(0.01));
+        if self.drawing.is_some() {
+            // The dragged corner of a new object: a point, so only its x and y snap, never a centre.
+            let Some(b) = self.drag_now else { return };
+            let (x, y) = self.screen_to_page(b);
+            let Some((r, lines)) = self.ask_snap(Rect::new(x, y, 0.0, 0.0), Vec::new(), tolerance) else { return };
+            self.snap = SnapState { delta: Vec2::new((r.x - x) as f32, (r.y - y) as f32), lines };
+            return;
+        }
+        if self.tool != Tool::Select {
+            return;
+        }
         if let Some(m) = self.moving {
             // A press that barely moved commits nothing (see the release), so it must not snap onto a target.
             if m.length() <= 0.5 {
@@ -120,8 +166,11 @@ impl NewpubApp {
         }))
     }
 
-    /// The rect the status bar reports: the live move or resize, else the selection.
+    /// The rect the status bar reports: the live drawing, move or resize, else the selection.
     pub(crate) fn readout_rect(&self) -> Option<Rect> {
+        if let Some((x0, y0, x1, y1)) = self.drawing_corners() {
+            return Some(Rect::new(x0.min(x1), y0.min(y1), (x1 - x0).abs(), (y1 - y0).abs()));
+        }
         if let Some((_, r)) = self.resize_preview() {
             return Some(r);
         }
@@ -130,14 +179,15 @@ impl NewpubApp {
         Some(Rect::new(b.x + f64::from(m.x), b.y + f64::from(m.y), b.w, b.h))
     }
 
-    /// Lines across the page for what the live drag snapped to.
+    /// Lines across the page for what the live drag snapped to (for a drawing tool, both corners).
     pub(crate) fn draw_snap_lines(&self, painter: &egui::Painter) {
-        if self.snap.lines.is_empty() || self.drag_start.is_none() {
+        if self.drag_start.is_none() {
             return;
         }
         let doc = self.session.doc();
         let (w, h) = (doc.setup.width.0, doc.setup.height.0);
-        for (o, pos) in &self.snap.lines {
+        let start_lines = self.drawing.iter().flat_map(|d| d.lines.iter());
+        for (o, pos) in self.snap.lines.iter().chain(start_lines) {
             let (a, b): (Pos2, Pos2) = match o {
                 Orientation::Vertical => (self.page_to_screen(*pos, 0.0), self.page_to_screen(*pos, h)),
                 Orientation::Horizontal => (self.page_to_screen(0.0, *pos), self.page_to_screen(w, *pos)),
