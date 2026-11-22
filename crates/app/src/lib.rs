@@ -54,6 +54,11 @@ pub enum Tool {
 }
 
 impl Tool {
+    /// Tools that draw a new object by dragging out its corners (the Freeform tool places points instead).
+    pub(crate) fn draws(self) -> bool {
+        matches!(self, Tool::TextBox | Tool::Rectangle | Tool::Ellipse | Tool::Line)
+    }
+
     pub const ALL: [(Tool, &'static str); 6] = [
         (Tool::Select, "Select"),
         (Tool::TextBox, "Text Box"),
@@ -151,6 +156,8 @@ pub struct NewpubApp {
     marquee: Option<Vec<Id>>,
     /// What the live move or resize snapped to (snap_ui.rs).
     snap: snap_ui::SnapState,
+    /// A drawing-tool drag: its press corner, snapped once when the drag began, and the lines it snapped to.
+    drawing: Option<snap_ui::DrawStart>,
     /// The last coalescable edit: key, session revision right after it, time.
     run: Option<(String, u64, Instant)>,
     /// Accumulated nudge of the current run, in points.
@@ -252,6 +259,7 @@ impl NewpubApp {
             resizing: None,
             marquee: None,
             snap: snap_ui::SnapState::default(),
+            drawing: None,
             run: None,
             run_delta: (0.0, 0.0),
             fields: Fields::default(),
@@ -454,6 +462,7 @@ impl NewpubApp {
         self.resizing = None;
         self.marquee = None;
         self.snap = snap_ui::SnapState::default();
+        self.drawing = None;
         self.drag_start = None;
         self.drag_now = None;
     }
@@ -983,9 +992,18 @@ impl NewpubApp {
             self.resizing = None;
             self.marquee = None;
             self.snap = snap_ui::SnapState::default();
+            self.drawing = None;
             self.drag_start = resp.ctx.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos());
             // Shift as held when the drag begins (egui keeps no modifiers for the press itself).
             let shift = resp.ctx.input(|i| i.modifiers.shift);
+            // A drawing tool snaps the corner it started from once, now (Alt as held now places it freely);
+            // the dragged corner follows below, every frame.
+            if self.tool.draws()
+                && let Some(p) = self.drag_start
+            {
+                let alt = resp.ctx.input(|i| i.modifiers.alt);
+                self.drawing = Some(self.snap_draw_start(p, alt));
+            }
             if self.tool == Tool::Select
                 && let Some(p) = self.drag_start
             {
@@ -1033,13 +1051,15 @@ impl NewpubApp {
             if let (Some(m), Some(a), Some(b)) = (self.moving.as_mut(), self.drag_start, self.drag_now) {
                 *m = (b - a) / self.zoom;
             }
-            if self.moving.is_some() || self.resizing.is_some() {
+            if self.moving.is_some() || self.resizing.is_some() || self.drawing.is_some() {
                 self.update_snap(alt);
             }
         }
         if resp.drag_stopped() && self.view.guide_drag.is_some() {
             let area = self.view.canvas_area;
             self.drop_guide(resp.interact_pointer_pos().or(resp.ctx.pointer_latest_pos()), area);
+            self.snap = snap_ui::SnapState::default();
+            self.drawing = None;
             self.drag_start = None;
             self.drag_now = None;
             return;
@@ -1051,7 +1071,7 @@ impl NewpubApp {
             if let (Some(m), Some(a), Some(b)) = (self.moving.as_mut(), a, b) {
                 *m = (b - a) / self.zoom;
             }
-            if self.moving.is_some() || self.resizing.is_some() {
+            if self.moving.is_some() || self.resizing.is_some() || self.drawing.is_some() {
                 self.update_snap(alt);
             }
             if let Some((id, r)) = self.resize_preview() {
@@ -1073,12 +1093,16 @@ impl NewpubApp {
                 } else if let (Some(a), Some(b)) = (a, b) {
                     self.select_marquee(&keep, a, b);
                 }
-            } else if let (Some(a), Some(b)) = (a, b) {
-                self.create_from_drag(a, b);
+            } else if let Some(corners) = self.drawing_corners() {
+                // Escape ends a drawing drag too: it cancels the object rather than placing it (as in Publisher).
+                if !resp.ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.create_object(corners);
+                }
             }
             self.resizing = None;
             self.marquee = None;
             self.snap = snap_ui::SnapState::default();
+            self.drawing = None;
             self.drag_start = None;
             self.drag_now = None;
         }
@@ -1117,9 +1141,11 @@ impl NewpubApp {
                     }
                 }
             } else {
-                // A click without dragging creates a default-sized object.
-                let b = p + Vec2::new(144.0, 72.0) * self.zoom;
-                self.create_from_drag(p, b);
+                // A click without dragging creates a default-sized (2 × 1 in) object where the pointer is; nothing
+                // is being lined up, so it does not snap.
+                let (x0, y0) = (x, y);
+                let (x1, y1) = self.screen_to_page(p + Vec2::new(144.0, 72.0) * self.zoom);
+                self.create_object((x0, y0, x1, y1));
             }
         }
     }
@@ -1184,9 +1210,9 @@ impl NewpubApp {
             .collect();
     }
 
-    fn create_from_drag(&mut self, a: Pos2, b: Pos2) {
-        let (x0, y0) = self.screen_to_page(a);
-        let (x1, y1) = self.screen_to_page(b);
+    /// Creates the current tool's object between two corners in page points: `(x0, y0)` where the drag began and
+    /// `(x1, y1)` where it ended, so a line keeps its direction. One undo step.
+    fn create_object(&mut self, (x0, y0, x1, y1): (f64, f64, f64, f64)) {
         let rect = Rect::new(x0.min(x1), y0.min(y1), (x1 - x0).abs().max(1.0), (y1 - y0).abs().max(1.0));
         let page = Some(self.page);
         let out = match self.tool {
@@ -1220,15 +1246,21 @@ impl NewpubApp {
                     join: core::LineJoin::Miter,
                 });
                 let (rect, fh, fv) = normalize_line(rect);
+                // A line drawn leftwards or upwards is stored flipped: the flip joins the add in one undo step.
+                let flips = fh || fv;
+                if flips {
+                    self.act(SessionAction::BeginGroup);
+                }
                 let o =
                     self.act(Command::AddShape { page, master: None, rect, kind: ShapeKind::Line, fill: None, stroke });
-                if let Some(id) = o.as_ref().and_then(|o| o.created.first().copied())
-                    && (fh || fv)
-                {
-                    self.act(Command::SetObject {
-                        id,
-                        patch: core::ObjectPatch { flip_h: Some(fh), flip_v: Some(fv), ..Default::default() },
-                    });
+                if flips {
+                    if let Some(id) = o.as_ref().and_then(|o| o.created.first().copied()) {
+                        self.act(Command::SetObject {
+                            id,
+                            patch: core::ObjectPatch { flip_h: Some(fh), flip_v: Some(fv), ..Default::default() },
+                        });
+                    }
+                    self.act(SessionAction::EndGroup);
                 }
                 o
             }
